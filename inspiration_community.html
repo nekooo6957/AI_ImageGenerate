@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>灵感社区 | UAL AI-Powered Design Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --black: #0a0a0a;
+            --white: #fafafa;
+            --accent: #c9a962;
+            --gray-100: #f5f5f5;
+            --gray-200: #e5e5e5;
+            --gray-400: #a3a3a3;
+            --gray-600: #525252;
+            --border: #f0f0f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--white);
+            color: var(--black);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .font-display {
+            font-family: 'Playfair Display', Georgia, serif;
+        }
+
+        /* Noise texture overlay */
+        .noise-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.015;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+
+        /* Navigation */
+        .nav-link {
+            position: relative;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 1px;
+            background: var(--black);
+            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-link:hover::after,
+        .nav-link.active::after {
+            width: 100%;
+        }
+
+        .nav-link.active {
+            color: var(--black) !important;
+            font-weight: 500;
+        }
+
+        /* Button styles */
+        .btn-primary {
+            position: relative;
+            background: var(--black);
+            color: var(--white);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: #1a1a1a;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Floating image animation */
+        .floating-image {
+            position: absolute;
+            opacity: 0.12;
+            pointer-events: none;
+            animation: floatImage 25s infinite ease-in-out;
+        }
+
+        @keyframes floatImage {
+            0%, 100% {
+                transform: translate(0, 0) rotate(0deg);
+            }
+            25% {
+                transform: translate(25px, -20px) rotate(3deg);
+            }
+            50% {
+                transform: translate(-15px, 25px) rotate(-2deg);
+            }
+            75% {
+                transform: translate(-25px, -15px) rotate(2deg);
+            }
+        }
+
+        /* Case card styles */
+        .inspiration-card {
+            border-radius: 16px;
+            overflow: hidden;
+            background: white;
+            border: 1px solid var(--border);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+        }
+
+        .inspiration-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.12);
+            border-color: var(--gray-200);
+        }
+
+        .inspiration-card .card-image {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .inspiration-card .card-image img {
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .inspiration-card:hover .card-image img {
+            transform: scale(1.05);
+        }
+
+        .inspiration-card .card-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .inspiration-card:hover .card-overlay {
+            opacity: 1;
+        }
+
+        .inspiration-card .card-info {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 16px;
+            color: white;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .inspiration-card:hover .card-info {
+            transform: translateY(0);
+        }
+
+        /* Tag styles */
+        .tag-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            background: var(--gray-100);
+            color: var(--gray-600);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .tag-chip:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .tag-chip.active {
+            background: var(--black);
+            color: white;
+            border-color: var(--black);
+        }
+
+        /* Search input */
+        .search-input {
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            box-shadow: 0 0 0 3px rgba(201, 169, 98, 0.15);
+            border-color: var(--accent);
+        }
+
+        /* Modal styles */
+        .modal-backdrop {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(8px);
+        }
+
+        /* Upload area */
+        .upload-area {
+            transition: all 0.3s ease;
+        }
+
+        .upload-area:hover,
+        .upload-area.dragover {
+            border-color: var(--accent);
+            background: rgba(201, 169, 98, 0.05);
+        }
+
+        /* Animation for cards appearing */
+        @keyframes fadeUpIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card-animate {
+            animation: fadeUpIn 0.5s ease-out forwards;
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--gray-100);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--gray-400);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--gray-600);
+        }
+
+        /* Sort buttons */
+        .sort-btn {
+            transition: all 0.2s ease;
+        }
+
+        .sort-btn.active {
+            background: var(--black);
+            color: white;
+        }
+
+        .sort-btn:hover:not(.active) {
+            background: var(--gray-100);
+        }
+
+        /* Empty state */
+        .empty-state {
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Noise overlay -->
+    <div class="noise-overlay"></div>
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+                <!-- Logo -->
+                <a href="./index.html" class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-black rounded-lg flex items-center justify-center">
+                        <i class="fas fa-city text-white text-sm"></i>
+                    </div>
+                    <span class="font-display text-xl font-semibold">UAL AI Design Platform</span>
+                </a>
+
+                <!-- Desktop Navigation -->
+                <div class="hidden md:flex items-center gap-10">
+                    <a href="./index.html" class="nav-link text-sm text-gray-600 hover:text-black transition-colors">首页</a>
+                    <a href="./nanobananapro生图平台.html" class="nav-link text-sm text-gray-600 hover:text-black transition-colors">创作平台</a>
+                    <a href="./inspiration_community.html" class="nav-link text-sm text-black font-medium active">灵感社区</a>
+                </div>
+
+                <!-- Upload Button -->
+                <div class="flex items-center gap-4">
+                    <button onclick="openUploadModal()" class="btn-primary px-6 py-3 rounded-full text-sm font-medium flex items-center gap-2">
+                        <i class="fas fa-plus"></i>
+                        <span>分享作品</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="relative min-h-[50vh] flex items-center justify-center overflow-hidden pt-20">
+        <!-- Floating images background -->
+        <div id="floatingImages" class="absolute inset-0 overflow-hidden pointer-events-none">
+            <!-- Floating images will be created by JS -->
+        </div>
+
+        <div class="max-w-7xl mx-auto px-6 lg:px-8 py-20 relative z-10 text-center">
+            <h1 class="font-display text-5xl sm:text-6xl font-semibold mb-6">
+                灵感社区
+            </h1>
+            <p class="text-lg text-gray-600 max-w-2xl mx-auto">
+                探索优秀设计案例，激发创作灵感。浏览、学习、分享 AI 生成的城市规划设计、建筑设计与景观设计作品。
+            </p>
+        </div>
+    </section>
+
+    <!-- Search and Filter Section -->
+    <section class="py-8 border-y border-gray-100 bg-gray-50/50 sticky top-20 z-40 backdrop-blur-xl">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="flex flex-col lg:flex-row gap-4 items-center justify-between">
+                <!-- Search input -->
+                <div class="relative w-full lg:w-96">
+                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                    <input
+                        type="text"
+                        id="searchInput"
+                        placeholder="搜索标题或标签..."
+                        class="search-input w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none"
+                        oninput="handleSearch(this.value)"
+                    >
+                </div>
+
+                <!-- Sort buttons -->
+                <div class="flex items-center gap-2">
+                    <span class="text-sm text-gray-500 mr-2">排序:</span>
+                    <button onclick="setSortBy('latest')" class="sort-btn active px-4 py-2 rounded-lg text-sm" data-sort="latest">
+                        最新
+                    </button>
+                    <button onclick="setSortBy('popular')" class="sort-btn px-4 py-2 rounded-lg text-sm" data-sort="popular">
+                        热门
+                    </button>
+                </div>
+            </div>
+
+            <!-- Popular tags -->
+            <div class="mt-4 flex flex-wrap gap-2 items-center">
+                <span class="text-sm text-gray-500">热门标签:</span>
+                <div id="popularTags" class="flex flex-wrap gap-2">
+                    <!-- Tags will be rendered by JS -->
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Cases Gallery -->
+    <section class="py-12">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <!-- Results count -->
+            <div class="mb-6 flex items-center justify-between">
+                <p id="resultsCount" class="text-sm text-gray-500">加载中...</p>
+                <div id="selectedTagsDisplay" class="flex flex-wrap gap-2">
+                    <!-- Selected tags will be shown here -->
+                </div>
+            </div>
+
+            <!-- Gallery grid -->
+            <div id="casesGallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <!-- Cards will be rendered by JS -->
+            </div>
+
+            <!-- Empty state -->
+            <div id="emptyState" class="hidden empty-state text-center py-20">
+                <i class="fas fa-search text-6xl text-gray-200 mb-4"></i>
+                <h3 class="text-xl font-semibold text-gray-600 mb-2">未找到相关案例</h3>
+                <p class="text-gray-500">试试调整搜索关键词或筛选条件</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Case Detail Modal -->
+    <div id="caseModal" class="fixed inset-0 z-[100] hidden">
+        <div class="modal-backdrop absolute inset-0" onclick="closeCaseModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl shadow-2xl flex max-w-5xl w-full max-h-[90vh] overflow-hidden">
+                <!-- Left: Image -->
+                <div class="flex-1 bg-gray-100 flex items-center justify-center p-6 sm:p-8">
+                    <img id="modalImage" src="" alt="" class="max-w-full max-h-full object-contain rounded-xl shadow-lg">
+                </div>
+                <!-- Right: Details -->
+                <div class="w-full sm:w-96 flex flex-col">
+                    <!-- Header -->
+                    <div class="p-6 border-b border-gray-100 flex justify-between items-start">
+                        <div>
+                            <h2 id="modalTitle" class="font-display text-xl font-semibold"></h2>
+                            <p id="modalAuthor" class="text-sm text-gray-500 mt-1"></p>
+                        </div>
+                        <button onclick="closeCaseModal()" class="text-gray-400 hover:text-black transition-colors">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    <!-- Tags -->
+                    <div class="p-6 border-b border-gray-100">
+                        <h3 class="text-sm font-semibold mb-3">标签</h3>
+                        <div id="modalTags" class="flex flex-wrap gap-2">
+                            <!-- Tags will be rendered here -->
+                        </div>
+                    </div>
+                    <!-- Prompt -->
+                    <div class="flex-1 p-6 overflow-y-auto">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-sm font-semibold">提示词</h3>
+                            <button onclick="copyPrompt()" class="text-xs text-gray-500 hover:text-black flex items-center gap-1">
+                                <i class="fas fa-copy"></i>
+                                复制
+                            </button>
+                        </div>
+                        <p id="modalPrompt" class="text-sm text-gray-600 leading-relaxed bg-gray-50 p-4 rounded-xl"></p>
+                    </div>
+                    <!-- Actions -->
+                    <div class="p-6 border-t border-gray-100 flex gap-3">
+                        <button onclick="copyPrompt()" class="flex-1 py-3 rounded-xl text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
+                            <i class="fas fa-copy"></i>
+                            复制提示词
+                        </button>
+                        <button onclick="goToCreation()" class="flex-1 btn-primary py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2">
+                            <i class="fas fa-magic"></i>
+                            去创作
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="fixed inset-0 z-[100] hidden">
+        <div class="modal-backdrop absolute inset-0" onclick="closeUploadModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                    <h2 class="font-display text-lg font-semibold">分享您的作品</h2>
+                    <button onclick="closeUploadModal()" class="text-gray-400 hover:text-black">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <!-- Form -->
+                <div class="p-6 space-y-4">
+                    <!-- Image upload -->
+                    <div
+                        id="uploadArea"
+                        class="upload-area border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer"
+                        onclick="document.getElementById('caseImageInput').click()"
+                    >
+                        <input type="file" id="caseImageInput" accept="image/*" class="hidden" onchange="handleCaseImageUpload(event)">
+                        <div id="uploadPreview" class="hidden">
+                            <img id="previewImage" src="" class="max-h-48 mx-auto rounded-lg">
+                        </div>
+                        <div id="uploadPlaceholder">
+                            <i class="fas fa-cloud-upload-alt text-3xl text-gray-300 mb-2"></i>
+                            <p class="text-sm text-gray-500">点击或拖拽上传案例图片</p>
+                        </div>
+                    </div>
+                    <!-- Title -->
+                    <input
+                        type="text"
+                        id="uploadTitle"
+                        placeholder="作品标题"
+                        class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-gray-400"
+                    >
+                    <!-- Tags -->
+                    <input
+                        type="text"
+                        id="uploadTags"
+                        placeholder="标签（用逗号分隔，如：城市规划, 生态, 现代）"
+                        class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-gray-400"
+                    >
+                    <!-- Prompt -->
+                    <textarea
+                        id="uploadPrompt"
+                        placeholder="生成此图使用的提示词..."
+                        rows="4"
+                        class="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-gray-400 resize-none"
+                    ></textarea>
+                </div>
+                <!-- Footer buttons -->
+                <div class="px-6 py-4 border-t border-gray-100 flex gap-3">
+                    <button onclick="closeUploadModal()" class="flex-1 py-3 rounded-xl text-sm font-medium border border-gray-200 hover:bg-gray-50 transition-colors">
+                        取消
+                    </button>
+                    <button onclick="handleCaseUpload()" class="flex-1 py-3 rounded-xl text-sm font-medium btn-primary">
+                        发布
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="py-12 border-t border-gray-100 bg-gray-50/50">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8 text-center">
+            <p class="text-sm text-gray-500">
+                © 2026 UAL AI-Powered Design Platform. Created by <span class="font-medium">缪文杰</span>
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // ========== 静态案例数据 ==========
+        const STATIC_CASES = [
+            {
+                id: 1,
+                title: '未来生态城市鸟瞰',
+                image: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800',
+                tags: ['城市规划', '生态', '鸟瞰', '未来'],
+                prompt: '未来生态城市鸟瞰图，绿色建筑与自然景观融合，太阳能板屋顶，垂直花园，空中步道连接各建筑，清洁能源设施，可持续城市发展理念，高清渲染，写实风格。',
+                author: 'AI Designer',
+                createdAt: '2026-01-20',
+                likes: 128,
+                category: '城市'
+            },
+            {
+                id: 2,
+                title: '现代艺术博物馆',
+                image: 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=800',
+                tags: ['建筑设计', '现代', '博物馆', '文化'],
+                prompt: '现代艺术博物馆外观设计，流线型建筑造型，玻璃幕墙与混凝土结合，雕塑感强烈的几何形态，自然光线通过天窗洒入室内，当代建筑美学，建筑摄影，广角镜头。',
+                author: 'Studio AI',
+                createdAt: '2026-01-18',
+                likes: 95,
+                category: '建筑'
+            },
+            {
+                id: 3,
+                title: '城市中央公园景观',
+                image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800',
+                tags: ['景观设计', '公园', '城市', '休闲'],
+                prompt: '城市中央公园景观设计，开阔草坪，步道系统，水景广场，休闲座椅，季节性植物配置，儿童游乐区，老年健身区，可持续发展雨水收集系统，春日午后，温暖阳光。',
+                author: 'Landscape Pro',
+                createdAt: '2026-01-15',
+                likes: 87,
+                category: '景观'
+            },
+            {
+                id: 4,
+                title: '赛博朋克街道概念',
+                image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800',
+                tags: ['概念场景', '赛博朋克', '未来', '夜景'],
+                prompt: '赛博朋克风格街道场景，霓虹灯光，全息广告牌，飞行汽车，雨夜氛围，高楼林立，未来都市，亚洲城市风格，紫色和青色灯光，电影级渲染，虚幻引擎5风格。',
+                author: 'Concept Art',
+                createdAt: '2026-01-12',
+                likes: 156,
+                category: '概念'
+            },
+            {
+                id: 5,
+                title: '滨水商业区规划',
+                image: 'https://images.unsplash.com/photo-1496568816309-51d7c20e3b21?w=800',
+                tags: ['城市规划', '滨水', '商业', '现代'],
+                prompt: '滨水商业区总体规划，开放式步行街区，滨水餐饮露台，游艇码头，景观塔，地标建筑，水岸线设计，夜间照明，商业氛围，活力城市空间，鸟瞰视角。',
+                author: 'Urban Planner',
+                createdAt: '2026-01-10',
+                likes: 72,
+                category: '城市'
+            },
+            {
+                id: 6,
+                title: '山地度假酒店设计',
+                image: 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=800',
+                tags: ['建筑设计', '度假酒店', '山地', '自然'],
+                prompt: '山地度假酒店设计，依山而建的建筑形态，大面积玻璃窗，悬挑观景平台，石材与木材结合，融入自然环境，日出时分，薄雾缭绕，宁静致远，高端度假体验。',
+                author: 'Resort Design',
+                createdAt: '2026-01-08',
+                likes: 91,
+                category: '建筑'
+            },
+            {
+                id: 7,
+                title: '口袋公园社区景观',
+                image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80',
+                tags: ['景观设计', '社区', '口袋公园', '改造'],
+                prompt: '城市社区口袋公园改造，老旧社区微更新，垂直绿化，多功能活动空间，老人健身区，儿童沙坑，雨水花园，社区花园，邻里社交空间，温馨和谐氛围。',
+                author: 'Community Design',
+                createdAt: '2026-01-05',
+                likes: 64,
+                category: '景观'
+            },
+            {
+                id: 8,
+                title: '漂浮城市概念',
+                image: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=800&q=80',
+                tags: ['概念场景', '未来城市', '漂浮', '科幻'],
+                prompt: '气候变化后的漂浮城市概念设计，海上建筑群，浮动平台，水上交通，可持续生态系统，海洋能源利用，未来人类居住方式，科幻概念艺术，超高清渲染。',
+                author: 'Future Vision',
+                createdAt: '2026-01-03',
+                likes: 189,
+                category: '概念'
+            }
+        ];
+
+        // ========== 状态管理 ==========
+        const state = {
+            cases: [],
+            searchTerm: '',
+            selectedTags: [],
+            sortBy: 'latest',
+            filteredCases: [],
+            currentModalCase: null,
+            uploadedImageData: null
+        };
+
+        // ========== 初始化 ==========
+        function init() {
+            loadCasesFromStorage();
+            createFloatingImages();
+            renderPopularTags();
+            filterAndRenderCases();
+            setupDragAndDrop();
+        }
+
+        // ========== 数据加载 ==========
+        function loadCasesFromStorage() {
+            const saved = localStorage.getItem('inspiration_cases');
+            const userCases = saved ? JSON.parse(saved) : [];
+            state.cases = [...STATIC_CASES, ...userCases];
+        }
+
+        function saveCasesToStorage() {
+            const userCases = state.cases.filter(c => c.author === '我');
+            localStorage.setItem('inspiration_cases', JSON.stringify(userCases));
+        }
+
+        // ========== 漂浮图片动画 ==========
+        function createFloatingImages() {
+            const container = document.getElementById('floatingImages');
+            const positions = [
+                { top: '10%', left: '5%', size: 150, delay: 0 },
+                { top: '25%', right: '8%', size: 100, delay: -8 },
+                { top: '55%', left: '10%', size: 120, delay: -15 },
+                { bottom: '20%', right: '12%', size: 110, delay: -22 },
+            ];
+
+            positions.forEach((pos, i) => {
+                const img = document.createElement('div');
+                img.className = 'floating-image rounded-2xl overflow-hidden shadow-lg';
+                img.style.cssText = `
+                    top: ${pos.top};
+                    ${pos.left ? 'left: ' + pos.left : 'right: ' + pos.right};
+                    width: ${pos.size}px;
+                    height: ${pos.size * 0.75}px;
+                    animation-delay: ${pos.delay}s;
+                `;
+                const caseItem = state.cases[i % state.cases.length];
+                img.innerHTML = `<img src="${caseItem.image}" class="w-full h-full object-cover" alt="${caseItem.title}">`;
+                container.appendChild(img);
+            });
+        }
+
+        // ========== 热门标签 ==========
+        function getAllTags() {
+            const tagCounts = {};
+            state.cases.forEach(c => {
+                c.tags.forEach(tag => {
+                    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                });
+            });
+            return Object.entries(tagCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8)
+                .map(([tag]) => tag);
+        }
+
+        function renderPopularTags() {
+            const container = document.getElementById('popularTags');
+            const tags = getAllTags();
+            container.innerHTML = tags.map(tag => `
+                <button class="tag-chip ${state.selectedTags.includes(tag) ? 'active' : ''}" onclick="toggleTag('${tag}')">
+                    ${tag}
+                </button>
+            `).join('');
+        }
+
+        // ========== 搜索和筛选 ==========
+        function handleSearch(value) {
+            state.searchTerm = value;
+            filterAndRenderCases();
+        }
+
+        function toggleTag(tag) {
+            const index = state.selectedTags.indexOf(tag);
+            if (index > -1) {
+                state.selectedTags.splice(index, 1);
+            } else {
+                state.selectedTags.push(tag);
+            }
+            renderPopularTags();
+            renderSelectedTags();
+            filterAndRenderCases();
+        }
+
+        function removeSelectedTag(tag) {
+            toggleTag(tag);
+        }
+
+        function renderSelectedTags() {
+            const container = document.getElementById('selectedTagsDisplay');
+            if (state.selectedTags.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            container.innerHTML = state.selectedTags.map(tag => `
+                <span class="tag-chip active" onclick="removeSelectedTag('${tag}')">
+                    ${tag}
+                    <i class="fas fa-times ml-1 text-xs"></i>
+                </span>
+            `).join('');
+        }
+
+        function setSortBy(sortBy) {
+            state.sortBy = sortBy;
+            document.querySelectorAll('.sort-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.sort === sortBy);
+            });
+            filterAndRenderCases();
+        }
+
+        function filterAndRenderCases() {
+            let filtered = state.cases.filter(caseItem => {
+                const matchTitle = caseItem.title.toLowerCase().includes(state.searchTerm.toLowerCase());
+                const matchTags = state.selectedTags.length === 0 ||
+                    state.selectedTags.some(tag => caseItem.tags.includes(tag));
+                const matchSearch = state.searchTerm === '' ||
+                    caseItem.tags.some(tag => tag.toLowerCase().includes(state.searchTerm.toLowerCase()));
+                return (matchTitle || matchSearch) && matchTags;
+            });
+
+            // Sort
+            filtered.sort((a, b) => {
+                if (state.sortBy === 'latest') {
+                    return new Date(b.createdAt) - new Date(a.createdAt);
+                } else {
+                    return b.likes - a.likes;
+                }
+            });
+
+            state.filteredCases = filtered;
+            renderGallery();
+        }
+
+        // ========== 画廊渲染 ==========
+        function renderGallery() {
+            const container = document.getElementById('casesGallery');
+            const emptyState = document.getElementById('emptyState');
+            const resultsCount = document.getElementById('resultsCount');
+
+            resultsCount.textContent = `找到 ${state.filteredCases.length} 个案例`;
+
+            if (state.filteredCases.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            container.innerHTML = state.filteredCases.map((caseItem, index) => `
+                <div class="inspiration-card card-animate" style="animation-delay: ${index * 0.05}s" onclick="openCaseModal(${caseItem.id})">
+                    <div class="card-image aspect-[4/3]">
+                        <img src="${caseItem.image}" alt="${caseItem.title}" class="w-full h-full object-cover">
+                        <div class="card-overlay"></div>
+                        <div class="card-info">
+                            <h3 class="font-semibold text-sm mb-1">${caseItem.title}</h3>
+                            <div class="flex flex-wrap gap-1">
+                                ${caseItem.tags.slice(0, 3).map(tag => `
+                                    <span class="text-xs bg-white/20 backdrop-blur-sm px-2 py-1 rounded-full">${tag}</span>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="p-4">
+                        <h3 class="font-semibold text-sm mb-2 truncate">${caseItem.title}</h3>
+                        <div class="flex flex-wrap gap-1 mb-3">
+                            ${caseItem.tags.slice(0, 3).map(tag => `
+                                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">${tag}</span>
+                            `).join('')}
+                        </div>
+                        <div class="flex items-center justify-between text-xs text-gray-500">
+                            <span>${caseItem.author}</span>
+                            <span><i class="fas fa-heart text-red-400 mr-1"></i>${caseItem.likes}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // ========== Modal 操作 ==========
+        function openCaseModal(caseId) {
+            const caseItem = state.cases.find(c => c.id === caseId);
+            if (!caseItem) return;
+
+            state.currentModalCase = caseItem;
+
+            document.getElementById('modalImage').src = caseItem.image;
+            document.getElementById('modalTitle').textContent = caseItem.title;
+            document.getElementById('modalAuthor').textContent = `By ${caseItem.author} · ${caseItem.createdAt}`;
+            document.getElementById('modalPrompt').textContent = caseItem.prompt;
+
+            const tagsContainer = document.getElementById('modalTags');
+            tagsContainer.innerHTML = caseItem.tags.map(tag => `
+                <span class="tag-chip">${tag}</span>
+            `).join('');
+
+            document.getElementById('caseModal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeCaseModal() {
+            document.getElementById('caseModal').classList.add('hidden');
+            document.body.style.overflow = '';
+            state.currentModalCase = null;
+        }
+
+        function copyPrompt() {
+            if (!state.currentModalCase) return;
+            navigator.clipboard.writeText(state.currentModalCase.prompt).then(() => {
+                // Show brief feedback
+                const btn = event.target.closest('button');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-check mr-2"></i>已复制';
+                setTimeout(() => btn.innerHTML = originalText, 2000);
+            });
+        }
+
+        function goToCreation() {
+            if (!state.currentModalCase) return;
+            // Open creation platform with pre-filled prompt
+            const url = new URL('./nanobananapro生图平台.html', window.location.href);
+            url.searchParams.set('prompt', state.currentModalCase.prompt);
+            window.open(url.href, '_blank');
+        }
+
+        // ========== 上传功能 ==========
+        function openUploadModal() {
+            document.getElementById('uploadModal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeUploadModal() {
+            document.getElementById('uploadModal').classList.add('hidden');
+            document.body.style.overflow = '';
+            resetUploadForm();
+        }
+
+        function resetUploadForm() {
+            document.getElementById('uploadTitle').value = '';
+            document.getElementById('uploadTags').value = '';
+            document.getElementById('uploadPrompt').value = '';
+            document.getElementById('caseImageInput').value = '';
+            state.uploadedImageData = null;
+            document.getElementById('uploadPreview').classList.add('hidden');
+            document.getElementById('uploadPlaceholder').classList.remove('hidden');
+        }
+
+        function handleCaseImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                state.uploadedImageData = e.target.result;
+                document.getElementById('previewImage').src = e.target.result;
+                document.getElementById('uploadPreview').classList.remove('hidden');
+                document.getElementById('uploadPlaceholder').classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function handleCaseUpload() {
+            const title = document.getElementById('uploadTitle').value.trim();
+            const tagsStr = document.getElementById('uploadTags').value.trim();
+            const prompt = document.getElementById('uploadPrompt').value.trim();
+
+            if (!title) {
+                alert('请输入作品标题');
+                return;
+            }
+            if (!state.uploadedImageData) {
+                alert('请上传作品图片');
+                return;
+            }
+            if (!tagsStr) {
+                alert('请输入至少一个标签');
+                return;
+            }
+
+            const tags = tagsStr.split(/[,，]/).map(t => t.trim()).filter(t => t);
+
+            const newCase = {
+                id: Date.now(),
+                title,
+                image: state.uploadedImageData,
+                tags,
+                prompt: prompt || '暂无提示词',
+                author: '我',
+                createdAt: new Date().toISOString().split('T')[0],
+                likes: 0,
+                category: determineCategory(tags)
+            };
+
+            state.cases.unshift(newCase);
+            saveCasesToStorage();
+            closeUploadModal();
+            filterAndRenderCases();
+
+            // Show success message
+            alert('作品发布成功！');
+        }
+
+        function determineCategory(tags) {
+            if (tags.some(t => t.includes('城市') || t.includes('规划'))) return '城市';
+            if (tags.some(t => t.includes('建筑') || t.includes('设计'))) return '建筑';
+            if (tags.some(t => t.includes('景观') || t.includes('公园'))) return '景观';
+            return '概念';
+        }
+
+        function setupDragAndDrop() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('caseImageInput');
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, () => uploadArea.classList.add('dragover'), false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, () => uploadArea.classList.remove('dragover'), false);
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    fileInput.files = files;
+                    handleCaseImageUpload({ target: fileInput });
+                }
+            }, false);
+        }
+
+        // ========== 键盘事件 ==========
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (!document.getElementById('caseModal').classList.contains('hidden')) {
+                    closeCaseModal();
+                } else if (!document.getElementById('uploadModal').classList.contains('hidden')) {
+                    closeUploadModal();
+                }
+            }
+        });
+
+        // ========== 初始化 ==========
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

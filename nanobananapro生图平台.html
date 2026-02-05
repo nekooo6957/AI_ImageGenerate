@@ -1,0 +1,3532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UAL AI-Powered Design Platform | 规划建筑景观 AI 创作平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- 新增依赖：Fabric.js(标注), Dexie.js(数据库), CryptoJS(加密) -->
+    <!-- 直接使用稳定的 CDN 版本 -->
+    <script src="https://unpkg.com/fabric@5.3.0/dist/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
+    <style>
+        :root {
+            --bg: #fafafa;
+            --black: #0a0a0a;
+            --white: #fafafa;
+            --accent: #c9a962;
+            --border: #f0f0f0;
+            --gray-100: #f5f5f5;
+            --gray-200: #e5e5e5;
+            --gray-400: #a3a3a3;
+            --gray-600: #525252;
+        }
+        body {
+            font-family: 'Space Grotesk', "Inter", "PingFang SC", sans-serif;
+            background: var(--bg);
+            color: var(--black);
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3" fill="black"/></svg>') 8 8, auto;
+        }
+
+        .font-display {
+            font-family: 'Playfair Display', Georgia, serif;
+        }
+
+        /* Noise texture overlay */
+        .noise-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.015;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+
+        /* 深度高光跟随 - 金色聚光灯效果 */
+        .spotlight-btn {
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.16, 1, 1, 1);
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+        }
+        .spotlight-btn::after {
+            content: "";
+            position: absolute;
+            top: var(--y, 50%);
+            left: var(--x, 50%);
+            width: 350px;
+            height: 350px;
+            background: radial-gradient(circle, rgba(201, 169, 98, 0.3) 0%, transparent 75%);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.4s;
+        }
+        .spotlight-btn:hover::after { opacity: 1; }
+        .spotlight-btn:active { transform: scale(0.97); }
+
+        .btn-black {
+            background: var(--black);
+            color: var(--white);
+            border: none;
+        }
+        .btn-black::after {
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 75%);
+        }
+
+        .btn-black:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .active-tag {
+            background: var(--black) !important;
+            color: var(--white) !important;
+            border-color: var(--black) !important;
+            font-weight: 600;
+            transform: scale(1.02);
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+
+        /* 项目列表样式 - 优化过渡效果 */
+        .project-item {
+            cursor: pointer;
+            padding: 12px 18px;
+            border-radius: 14px;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            font-size: 11px;
+            margin-bottom: 6px;
+            color: var(--gray-400);
+            border: 1px solid transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .project-item:hover {
+            background: var(--gray-100);
+            color: var(--black);
+            transform: translateX(4px);
+        }
+        .project-item.active {
+            background: white;
+            border-color: var(--border);
+            color: var(--black);
+            font-weight: bold;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+        .project-actions { display: none; gap: 8px; }
+        .project-item:hover .project-actions { display: flex; }
+
+        /* 预览看板 Modal - 优化样式 */
+        #imgModal {
+            background: rgba(255, 255, 255, 0.99);
+            backdrop-filter: blur(25px);
+            display: none;
+            flex-direction: row;
+        }
+        .modal-image-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            background: var(--gray-100);
+            position: relative;
+            cursor: grab;
+        }
+        .modal-image-container:active { cursor: grabbing; }
+        #modalImg {
+            max-width: 90%;
+            max-height: 90%;
+            user-select: none;
+            pointer-events: none;
+            border-radius: 8px;
+            box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.15);
+        }
+        .modal-sidebar {
+            width: 420px;
+            border-left: 1px solid var(--border);
+            background: white;
+            display: flex;
+            flex-direction: column;
+            padding: 40px;
+            z-index: 10;
+        }
+        .zoom-controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 15px;
+            background: white;
+            padding: 12px 24px;
+            border-radius: 50px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+            z-index: 20;
+            border: 1px solid var(--border);
+        }
+        .zoom-controls button {
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .zoom-controls button:hover {
+            transform: scale(1.1);
+        }
+
+        .modal-input-thumb {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            object-fit: cover;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .modal-input-thumb:hover {
+            transform: scale(1.05);
+        }
+        .modal-input-thumb.active {
+            border-color: var(--accent);
+            box-shadow: 0 5px 15px rgba(201, 169, 98, 0.3);
+        }
+
+        /* 标注 Modal 样式 */
+        #annotationModal .tool-btn.active { background: #C5AA67; border-color: #C5AA67; }
+        #annotationModal .tool-btn.active i { color: #fff; }
+        #annotationModal .canvas-wrapper {
+            width: 800px;
+            height: 600px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            overflow: hidden;
+        }
+        #annotationModal .canvas-wrapper canvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        /* 工具光标样式 */
+        .cursor-brush {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="black" stroke="white" stroke-width="1"/></svg>') 12 12, crosshair;
+        }
+        .cursor-lasso {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><polygon points="12,2 22,22 2,22" fill="none" stroke="black" stroke-width="2"/><circle cx="12" cy="12" r="2" fill="black"/></svg>') 12 12, crosshair;
+        }
+        .cursor-wand {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="20" stroke="black" stroke-width="2"/><circle cx="12" cy="6" r="3" fill="none" stroke="black" stroke-width="2"/><line x1="16" y1="16" x2="20" y2="20" stroke="black" stroke-width="2"/></svg>') 12 12, crosshair;
+        }
+        .cursor-text {
+            cursor: text;
+        }
+
+        /* 滑块样式优化 */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            border-radius: 2px;
+            background: #e5e5e5;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #C5AA67;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            background: #b8994f;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #C5AA67;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: all 0.2s;
+        }
+        input[type="range"]::-moz-range-thumb:hover {
+            transform: scale(1.1);
+            background: #b8994f;
+        }
+
+        /* 数字输入框样式 */
+        .number-input {
+            width: 40px;
+            height: 24px;
+            border: 1px solid #e5e5e5;
+            border-radius: 4px;
+            padding: 0 4px;
+            font-size: 9px;
+            text-align: center;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .number-input:focus {
+            border-color: #C5AA67;
+        }
+
+        /* === 提示词模板样式 === */
+        /* 二级功能按钮样式 */
+        .template-secondary-btn {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            margin-bottom: 6px;
+            font-size: 10px;
+            border: 1px solid #f0f0f0;
+            border-radius: 10px;
+            background: white;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .template-secondary-btn:hover {
+            border-color: #e0e0e0;
+            background: #fafafa;
+        }
+        .template-secondary-btn.active {
+            background: #0a0a0a;
+            color: white;
+            border-color: #0a0a0a;
+        }
+        .template-secondary-btn i {
+            font-size: 9px;
+            color: #a3a3a3;
+        }
+        .template-secondary-btn.active i {
+            color: rgba(255,255,255,0.6);
+        }
+
+        /* 三级功能卡片样式 */
+        .template-card {
+            position: relative;
+            border-radius: 16px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.2, 0, 0.2, 1);
+            background: white;
+            border: 1px solid #f0f0f0;
+        }
+        .template-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+            border-color: #e0e0e0;
+        }
+        .template-card-image {
+            width: 100%;
+            aspect-ratio: 16/12;
+            background: linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .template-card-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .template-card-image i {
+            font-size: 32px;
+            color: #d0d0d0;
+        }
+        .template-card-info {
+            padding: 12px 14px;
+        }
+        .template-card-name {
+            font-size: 11px;
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        .template-card-desc {
+            font-size: 9px;
+            color: #999;
+            line-height: 1.4;
+        }
+        .template-card .detail-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            border: 1px solid #C5AA67;
+            color: #C5AA67;
+            padding: 4px 10px;
+            font-size: 9px;
+            font-weight: 500;
+            border-radius: 6px;
+            opacity: 0;
+            transform: translateY(-4px);
+            transition: all 0.2s ease;
+            cursor: pointer;
+            pointer-events: none;
+        }
+        .template-card:hover .detail-btn {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+        .template-card .detail-btn:hover {
+            background: #fff9ed;
+            box-shadow: 0 2px 8px rgba(197,170,103,0.35);
+        }
+        .template-tag {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(8px);
+            color: white;
+            padding: 3px 8px;
+            font-size: 8px;
+            font-weight: 500;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .template-tag.need-ref {
+            background: rgba(197,170,103,0.9);
+        }
+
+        /* 已选择模板标签样式 */
+        .selected-template-tag {
+            animation: fadeIn 0.2s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 模板卡片已选择状态 */
+        .template-card.selected {
+            border-color: #C5AA67 !important;
+            box-shadow: 0 0 0 2px rgba(197,170,103,0.15), 0 4px 12px rgba(197,170,103,0.2) !important;
+        }
+        .template-card.selected::after {
+            content: '\f00c';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 20px;
+            height: 20px;
+            background: #C5AA67;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            z-index: 10;
+        }
+        .template-card.selected .template-tag {
+            display: none; /* 隐藏原标签，显示勾选标记 */
+        }
+
+        /* 提示词模板按钮激活状态 */
+        #promptTemplateBtn.active {
+            background: #0a0a0a;
+            border-color: #0a0a0a;
+        }
+        #promptTemplateBtn.active i, #promptTemplateBtn.active span {
+            color: white;
+        }
+        #promptTemplateBtn.active #templateArrow {
+            transform: rotate(90deg);
+            color: rgba(255,255,255,0.6);
+        }
+
+        /* 三级面板动画：缩放淡入 */
+        #templateTertiaryPanel > div:last-child > div:last-child {
+            animation: scaleFadeIn 0.25s ease-out;
+        }
+        @keyframes scaleFadeIn {
+            from {
+                transform: scale(0.95) translateY(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1) translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* 三级面板弹窗样式增强 */
+        #templateTertiaryPanel .border-2 {
+            box-shadow: 0 0 0 1px rgba(197, 170, 103, 0.15), 0 10px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        /* 模板卡片在弹窗中的样式优化 */
+        #templateTertiaryPanel .template-card {
+            aspect-ratio: 1;
+        }
+
+        #templateTertiaryPanel .template-card .card-preview {
+            height: 120px;
+        }
+
+        /* 模板详情标签样式 */
+        .detail-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            background: #f5f5f5;
+            color: #666;
+            font-size: 9px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Noise overlay -->
+    <div class="noise-overlay"></div>
+
+    <div id="authOverlay" class="fixed inset-0 z-[200] bg-white flex items-center justify-center">
+        <div class="w-96 p-10 text-center">
+            <div class="w-14 h-14 bg-black rounded-2xl flex items-center justify-center shadow-2xl mx-auto mb-8"><i class="fas fa-city text-white text-lg"></i></div>
+            <h2 class="font-display text-xl font-semibold mb-3">UAL AI-Powered Design Platform</h2>
+            <p class="text-xs text-gray-400 uppercase tracking-[0.3em] mb-10">Design Studio</p>
+            <div class="space-y-4 mb-8">
+                <input id="userAccount" type="text" placeholder="Design Account / 账号" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+                <input id="userPwd" type="password" placeholder="Password / 密码" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+            </div>
+            <button onclick="handleLogin()" class="w-full spotlight-btn btn-black py-4 rounded-2xl text-[11px] font-bold shadow-xl transition-all hover:shadow-2xl uppercase tracking-widest">进入档案库</button>
+        </div>
+    </div>
+
+    <div id="imgModal" class="fixed inset-0 z-[100] flex animate-in fade-in duration-300">
+        <div class="modal-image-container" id="modalImgBox" onmousedown="startDrag(event)" onmousemove="dragImage(event)" onmouseup="endDrag()" onmouseleave="endDrag()" onwheel="handleWheel(event)">
+            <div id="imgWrapper" style="transition: transform 0.1s ease-out; transform-origin: center;"><img id="modalImg" src="" class="shadow-2xl"></div>
+            <div class="zoom-controls">
+                <button onclick="changeZoom(-0.2)" class="hover:text-blue-500 transition px-2"><i class="fas fa-minus"></i></button>
+                <span id="zoomLevel" class="text-[10px] font-mono w-10 text-center">100%</span>
+                <button onclick="changeZoom(0.2)" class="hover:text-blue-500 transition px-2"><i class="fas fa-plus"></i></button>
+                <button onclick="resetView()" class="ml-2 pl-4 border-l border-gray-100 text-gray-400 hover:text-black transition"><i class="fas fa-undo-alt"></i></button>
+            </div>
+        </div>
+        <aside class="modal-sidebar shadow-2xl">
+            <div class="flex justify-between items-center mb-8"><h2 class="text-[10px] font-bold uppercase text-gray-400">Rendering Results</h2><button onclick="closeModal()" class="text-gray-300 hover:text-black"><i class="fas fa-times text-xl"></i></button></div>
+            <div class="mb-8"><label class="text-[9px] font-bold text-gray-300 uppercase mb-3 block tracking-widest">User Prompt / 用户提示词</label><div id="modalPrompt" class="text-[12px] leading-relaxed text-gray-600 italic border-l-2 border-gray-100 pl-4 py-2 bg-gray-50/50 rounded-r-xl max-h-48 overflow-y-auto no-scrollbar font-light"></div></div>
+            <div class="mb-10"><label class="text-[9px] font-bold text-gray-300 uppercase mb-3 block tracking-widest">Gallery / 画廊</label><div id="modalInputImages" class="flex gap-2 flex-wrap"></div></div>
+            <div class="mt-auto"><button id="downloadBtn" onclick="downloadCurrentImage()" class="w-full spotlight-btn btn-black py-4 rounded-2xl text-[11px] font-bold flex items-center justify-center gap-3"><span>下载图片</span><i class="fas fa-download text-[10px]"></i></button></div>
+        </aside>
+    </div>
+
+    <!-- 标注 Modal -->
+    <div id="annotationModal" class="fixed inset-0 z-[150]" style="display: none;">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeAnnotationModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl shadow-2xl flex flex-col max-w-5xl w-full max-h-[85vh] overflow-hidden">
+                <!-- 头部 -->
+                <div class="flex justify-between items-center px-6 py-4 border-b border-gray-100">
+                    <h2 class="text-sm font-bold text-gray-700">局部重绘 / Inpainting</h2>
+                    <div class="flex items-center gap-3">
+                        <span id="annotationStatus" class="text-[10px] text-gray-400">工具: 画笔</span>
+                        <button onclick="closeAnnotationModal()" class="text-gray-400 hover:text-black transition"><i class="fas fa-times text-lg"></i></button>
+                    </div>
+                </div>
+
+                <!-- Canvas 区域 -->
+                <div class="flex-1 bg-gray-50 flex items-center justify-center p-4 relative overflow-hidden">
+                    <div class="canvas-wrapper">
+                        <canvas id="annotationCanvas" width="800" height="600"></canvas>
+                    </div>
+                    <div id="canvasPlaceholder" class="absolute text-gray-400 text-sm">请先选择要重绘的图片区域</div>
+
+                    <!-- 缩放控件 -->
+                    <div class="annotation-zoom-controls" style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; background: white; padding: 10px 20px; border-radius: 50px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #e5e7eb;">
+                        <button onclick="changeAnnotationZoom(-0.2)" class="hover:text-blue-500 transition px-2" title="缩小">
+                            <i class="fas fa-minus text-xs"></i>
+                        </button>
+                        <span id="annotationZoomLevel" class="text-[10px] font-mono w-10 text-center">100%</span>
+                        <button onclick="changeAnnotationZoom(0.2)" class="hover:text-blue-500 transition px-2" title="放大">
+                            <i class="fas fa-plus text-xs"></i>
+                        </button>
+                        <button onclick="resetAnnotationView()" class="ml-2 pl-3 border-l border-gray-200 text-gray-400 hover:text-black transition" title="重置视图">
+                            <i class="fas fa-undo-alt text-xs"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 工具栏 -->
+                <div class="px-6 py-3 bg-gray-50 border-t border-gray-100">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <!-- 工具选择 -->
+                            <div class="flex gap-1 border-r border-gray-200 pr-3">
+                                <button onclick="setTool('brush')" id="tool-brush" class="tool-btn active w-10 h-10 rounded-lg bg-white border border-gray-200 hover:border-blue-400 flex items-center justify-center transition-colors" title="画笔 (B)">
+                                    <i class="fas fa-paintbrush text-gray-600 text-sm"></i>
+                                </button>
+                                <button onclick="setTool('lasso')" id="tool-lasso" class="tool-btn w-10 h-10 rounded-lg bg-white border border-gray-200 hover:border-blue-400 flex items-center justify-center transition-colors" title="套索 (L)">
+                                    <i class="fas fa-draw-polygon text-gray-600 text-sm"></i>
+                                </button>
+                                <button onclick="setTool('wand')" id="tool-wand" class="tool-btn w-10 h-10 rounded-lg bg-white border border-gray-200 hover:border-blue-400 flex items-center justify-center transition-colors" title="魔棒 (W)">
+                                    <i class="fas fa-wand-magic-sparkles text-gray-600 text-sm"></i>
+                                </button>
+                                <button onclick="setTool('text')" id="tool-text" class="tool-btn w-10 h-10 rounded-lg bg-white border border-gray-200 hover:border-blue-400 flex items-center justify-center transition-colors" title="文字 (T)">
+                                    <i class="fas fa-font text-gray-600 text-sm"></i>
+                                </button>
+                            </div>
+
+                            <!-- 魔棒模式切换按钮 -->
+                            <div class="flex items-center gap-1 border-r border-gray-200 pr-3">
+                                <button onclick="toggleWandMode()" id="wandModeBtn" class="px-2 py-1 text-[9px] border rounded bg-white hover:bg-gray-50 transition-colors" title="增加/减少选区 (也可用 Shift/Alt)">
+                                    <span id="wandModeText">增加</span>
+                                </button>
+                                <button onclick="toggleWandContiguous()" id="wandContiguousBtn" class="px-2 py-1 text-[9px] border rounded bg-green-50 border-green-300 hover:bg-gray-50 transition-colors" title="连续/非连续 (C)">
+                                    <span id="wandContiguousText">连续</span>
+                                </button>
+                            </div>
+
+                            <!-- 参数调节 -->
+                            <div class="flex items-center gap-3 border-r border-gray-200 pr-3">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[9px] text-gray-500">颜色:</span>
+                                    <input type="color" id="brushColor" value="#000000" class="w-8 h-8 rounded cursor-pointer border-0">
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[9px] text-gray-500">大小:</span>
+                                    <input type="range" id="brushSize" min="1" max="100" value="20" class="w-20">
+                                    <input type="number" id="brushSizeValue" class="number-input" min="1" max="100" value="20">
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[9px] text-gray-500">容差:</span>
+                                    <input type="range" id="toleranceSlider" min="0" max="100" value="30" class="w-16">
+                                    <input type="number" id="toleranceValue" class="number-input" min="0" max="100" value="30">
+                                </div>
+                            </div>
+
+                            <!-- 撤销/恢复 -->
+                            <div class="flex items-center gap-2">
+                                <button onclick="undoAnnotation()" class="w-8 h-8 rounded-lg bg-white border border-gray-200 hover:border-gray-400 flex items-center justify-center transition-colors" title="撤销 (Ctrl+Z)">
+                                    <i class="fas fa-undo text-gray-600 text-xs"></i>
+                                </button>
+                                <button onclick="redoAnnotation()" class="w-8 h-8 rounded-lg bg-white border border-gray-200 hover:border-gray-400 flex items-center justify-center transition-colors" title="恢复 (Ctrl+Y)">
+                                    <i class="fas fa-redo text-gray-600 text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="flex items-center gap-2">
+                            <button onclick="clearAnnotation()" class="px-3 py-2 text-[10px] border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                                <i class="fas fa-eraser mr-1"></i>清空
+                            </button>
+                            <button onclick="exportAnnotatedImage()" class="px-4 py-2 text-[10px] bg-black text-white rounded-lg hover:bg-gray-800 transition-colors">
+                                <i class="fas fa-check mr-1"></i>完成
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 提示词模板三级内容面板（默认隐藏，居中弹窗） -->
+    <div id="templateTertiaryPanel" class="hidden fixed inset-0 z-[90]">
+        <!-- 背景遮罩 -->
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" onclick="closeTemplateTertiaryPanel()"></div>
+        <!-- 弹窗内容：居中、红色边框 -->
+        <div class="absolute inset-0 flex items-center justify-center p-6">
+            <div class="bg-white rounded-2xl shadow-2xl flex flex-col max-w-4xl w-full max-h-[75vh] overflow-hidden border-2" style="border-color: #C5AA67;">
+                <!-- 头部：面包屑导航 + 关闭按钮 -->
+                <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+                    <div class="flex items-center gap-3">
+                        <nav class="flex items-center gap-2 text-[10px] text-gray-500">
+                            <span class="text-gray-400">提示词模板</span>
+                            <i class="fas fa-chevron-right text-[8px] text-gray-300"></i>
+                            <span id="templateBreadcrumbCategory" class="text-gray-800 font-medium">分类名称</span>
+                        </nav>
+                    </div>
+                    <button onclick="closeTemplateTertiaryPanel()" class="w-8 h-8 rounded-full bg-white border border-gray-200 hover:text-[#C5AA67] hover:border-[#C5AA67] text-gray-400 flex items-center justify-center transition-all shadow-sm">
+                        <i class="fas fa-times text-sm"></i>
+                    </button>
+                </div>
+                <!-- 内容区域：模板卡片网格 -->
+                <div class="flex-1 flex flex-col overflow-hidden bg-white">
+                    <!-- 已选择的模板区域 -->
+                    <div id="selectedTemplatesArea" class="px-6 py-3 border-b border-gray-100 bg-gray-50/50 min-h-[60px] hidden">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-[10px] text-gray-500 font-medium">已选择的模板（可叠加不同分类的模板）</span>
+                            <button onclick="clearAllSelectedTemplates()" class="text-[9px] text-gray-400 hover:text-red-400 transition-colors">
+                                <i class="fas fa-trash-alt mr-1"></i>清空全部
+                            </button>
+                        </div>
+                        <div id="selectedTemplatesContainer" class="flex flex-wrap gap-2">
+                            <!-- 已选择的模板标签将通过 JS 动态生成 -->
+                        </div>
+                    </div>
+                    <!-- 模板卡片网格 -->
+                    <div class="flex-1 p-6 overflow-y-auto">
+                        <div id="templateCardsGrid" class="grid grid-cols-3 gap-5">
+                            <!-- 模板卡片将通过 JS 动态生成 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 模板详情 Modal -->
+    <div id="templateDetailModal" class="fixed inset-0 z-[100]" style="display: none;">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeTemplateDetailModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl shadow-2xl flex max-w-3xl w-full max-h-[85vh] overflow-hidden">
+                <!-- 左侧：预览图 -->
+                <div class="w-2/5 bg-gray-50 p-6 flex items-center justify-center">
+                    <div id="templateDetailImageContainer" class="w-full aspect-square rounded-2xl bg-gray-100 flex items-center justify-center overflow-hidden">
+                        <i class="fas fa-image text-gray-300 text-4xl"></i>
+                    </div>
+                </div>
+                <!-- 右侧：详情内容 -->
+                <div class="w-3/5 p-6 flex flex-col">
+                    <div class="flex justify-between items-start mb-4">
+                        <h2 id="templateDetailName" class="text-lg font-bold text-gray-800">模板名称</h2>
+                        <button onclick="closeTemplateDetailModal()" class="text-gray-400 hover:text-black transition">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <p id="templateDetailDesc" class="text-sm text-gray-500 mb-4">模板描述</p>
+                    <div id="templateDetailTags" class="flex flex-wrap gap-2 mb-6">
+                        <!-- 标签将通过 JS 动态生成 -->
+                    </div>
+                    <div class="mb-6">
+                        <label class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block">系统提示词</label>
+                        <div id="templateDetailPrompt" class="text-[11px] text-gray-600 bg-gray-50 rounded-xl p-4 max-h-48 overflow-y-auto border border-gray-100">
+                            <!-- 提示词内容 -->
+                        </div>
+                    </div>
+                    <div class="mt-auto flex gap-3">
+                        <button onclick="applyTemplateFromModal()" class="flex-1 spotlight-btn py-3 rounded-xl text-[11px] font-bold bg-black text-white hover:bg-gray-800 transition-all">
+                            <i class="fas fa-check mr-2"></i>应用模板
+                        </button>
+                        <button onclick="closeTemplateDetailModal()" class="px-6 py-3 rounded-xl text-[11px] font-bold border border-gray-200 text-gray-600 hover:bg-gray-50 transition-all">
+                            取消
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <header class="h-16 border-b border-gray-100 flex items-center justify-between px-10 bg-white/95 backdrop-blur-xl z-50">
+        <div class="flex items-center gap-6">
+            <a href="./index.html" class="flex items-center gap-4 hover:opacity-80 transition-opacity">
+                <div class="w-8 h-8 bg-black rounded-lg flex items-center justify-center shadow-lg"><i class="fas fa-city text-white text-xs"></i></div>
+                <h1 class="font-display text-sm font-semibold">UAL <span class="text-gray-400 font-light text-xs">AI-Powered Design Platform</span></h1>
+            </a>
+            <nav class="flex items-center gap-6">
+                <a href="./index.html" class="text-[10px] text-gray-400 hover:text-black transition-colors">首页</a>
+                <a href="./nanobananapro生图平台.html" class="text-[10px] text-black font-medium">创作平台</a>
+                <a href="./inspiration_community.html" class="text-[10px] text-gray-400 hover:text-black transition-colors">灵感社区</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-6">
+            <div class="flex flex-col items-end gap-1">
+                <span class="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">Auth Key (APIMart)</span>
+                <input id="apiMartKey" type="password" placeholder="输入密钥..." class="text-[10px] border-b border-gray-100 focus:border-black outline-none px-2 py-1 transition-all w-56 bg-transparent text-right">
+            </div>
+            <div class="flex items-center gap-4 border-l border-gray-100 pl-6">
+                <div class="text-right">
+                    <p id="currentUserName" class="text-[10px] font-bold text-gray-800">Designer</p>
+                    <button onclick="handleLogout()" class="text-[8px] text-gray-300 hover:text-[#C5AA67] uppercase transition-colors">Sign Out</button>
+                </div>
+                <div class="w-10 h-10 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center shadow-sm"><i class="fas fa-user-tie text-gray-300"></i></div>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 flex overflow-hidden">
+        <aside class="w-72 border-r border-gray-100 flex flex-col bg-white shrink-0">
+            <div class="p-8 flex-1 overflow-y-auto no-scrollbar">
+                <!-- 提示词模板功能 -->
+                <section class="mb-6">
+                    <button onclick="togglePromptTemplate()" id="promptTemplateBtn"
+                        class="spotlight-btn w-full flex items-center justify-between px-4 py-3 border border-gray-100 rounded-xl bg-white hover:border-gray-300 hover:shadow-md transition-all">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-magic text-gray-400"></i>
+                            <span class="text-[10px]">提示词模板</span>
+                        </div>
+                        <i id="templateArrow" class="fas fa-chevron-right text-gray-300 text-[8px] transition-transform"></i>
+                    </button>
+                </section>
+
+                <!-- 提示词模板二级菜单面板（默认隐藏） -->
+                <div id="templateSecondaryPanel" class="hidden mb-6 pl-4 border-l-2 border-gray-100">
+                    <!-- 二级功能按钮将通过 JS 动态生成 -->
+                </div>
+
+                <section class="mb-10">
+                    <div class="flex justify-between items-center mb-5">
+                        <label class="text-[10px] font-bold uppercase tracking-widest text-gray-400">Archives / 项目</label>
+                        <button onclick="createNewProject()" class="text-[10px] text-black hover:text-gray-600 transition"><i class="fas fa-plus-circle"></i></button>
+                    </div>
+                    <div id="projectList"></div>
+                </section>
+
+                <section class="mb-10">
+                    <label class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-3 block">应用场景 / Scenario</label>
+                    <div class="grid grid-cols-2 gap-2" id="scenarioGrid">
+                        <button onclick="selectScenario('urban-planning', this)" class="scenario-btn spotlight-btn flex items-center gap-2 px-3 py-2 text-[10px] border border-gray-100 rounded-lg bg-white hover:border-gray-300 hover:shadow-md transition-all">
+                            <i class="fas fa-city text-gray-400"></i><span>城市规划设计</span>
+                        </button>
+                        <button onclick="selectScenario('architecture', this)" class="scenario-btn spotlight-btn flex items-center gap-2 px-3 py-2 text-[10px] border border-gray-100 rounded-lg bg-white hover:border-gray-300 hover:shadow-md transition-all">
+                            <i class="fas fa-building text-gray-400"></i><span>建筑设计</span>
+                        </button>
+                        <button onclick="selectScenario('landscape', this)" class="scenario-btn spotlight-btn flex items-center gap-2 px-3 py-2 text-[10px] border border-gray-100 rounded-lg bg-white hover:border-gray-300 hover:shadow-md transition-all">
+                            <i class="fas fa-tree text-gray-400"></i><span>景观设计</span>
+                        </button>
+                        <button onclick="selectScenario('concept', this)" class="scenario-btn spotlight-btn flex items-center gap-2 px-3 py-2 text-[10px] border border-gray-100 rounded-lg bg-white hover:border-gray-300 hover:shadow-md transition-all">
+                            <i class="fas fa-lightbulb text-gray-400"></i><span>概念场景图</span>
+                        </button>
+                    </div>
+                </section>
+
+                <section class="mb-10">
+                    <label class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-5 block">Ratio / 画面比例</label>
+                    <div class="grid grid-cols-2 gap-2" id="ratioGrid"></div>
+                </section>
+
+                <section class="mb-10">
+                    <label class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-5 block">Resolution / 精度</label>
+                    <div class="flex gap-2" id="resGroup">
+                        <button onclick="updateSelection('res', '1K', this)" class="res-btn spotlight-btn flex-1 py-2 text-[10px] border border-gray-100 rounded-lg active-tag transition-all hover:shadow-md">1K</button>
+                        <button onclick="updateSelection('res', '2K', this)" class="res-btn spotlight-btn flex-1 py-2 text-[10px] border border-gray-100 rounded-lg transition-all hover:shadow-md">2K</button>
+                        <button onclick="updateSelection('res', '4K', this)" class="res-btn spotlight-btn flex-1 py-2 text-[10px] border border-gray-100 rounded-lg transition-all hover:shadow-md">4K</button>
+                    </div>
+                </section>
+
+                <section>
+                    <label class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-5 block">Quantity / 生成数量</label>
+                    <div class="flex gap-2" id="nGroup">
+                        <button onclick="updateSelection('n', 1, this)" class="n-btn spotlight-btn flex-1 py-2 text-[10px] border border-gray-100 rounded-lg active-tag transition-all hover:shadow-md">1张</button>
+                        <button onclick="updateSelection('n', 2, this)" class="n-btn spotlight-btn flex-1 py-2 text-[10px] border border-gray-100 rounded-lg transition-all hover:shadow-md">2张</button>
+                        <button onclick="updateSelection('n', 3, this)" class="n-btn spotlight-btn flex-1 py-2 text-[10px] border border-gray-100 rounded-lg transition-all hover:shadow-md">3张</button>
+                        <button onclick="updateSelection('n', 4, this)" class="n-btn spotlight-btn flex-1 py-2 text-[10px] border border-gray-100 rounded-lg transition-all hover:shadow-md">4张</button>
+                    </div>
+                </section>
+            </div>
+        </aside>
+
+        <section class="flex-1 flex flex-col bg-[#fafafa] relative overflow-hidden">
+            <div id="historyTrack" class="flex-1 p-12 no-scrollbar flex flex-row items-start gap-10 overflow-x-auto scroll-behavior-smooth">
+                <div class="m-auto text-center opacity-10 select-none empty-hint"><p class="font-display text-[11px] font-light tracking-[1em] uppercase tracking-widest italic">Synthetic Evolution Timeline</p></div>
+            </div>
+
+            <div class="p-8 w-full max-w-5xl mx-auto z-20">
+                <div class="bg-white rounded-[2.5rem] shadow-[0_40px_100px_rgba(0,0,0,0.03)] border border-gray-100 p-6">
+                    <div id="imageTray" class="flex gap-4 mb-4 hidden no-scrollbar overflow-x-auto pb-1"></div>
+                    <div id="styleImageTray" class="flex gap-4 mb-4 hidden no-scrollbar overflow-x-auto pb-1 border-t border-gray-100 pt-3">
+                        <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">风格参考 / Style Reference</span>
+                    </div>
+                    <textarea id="promptInput" placeholder="描述方案愿景，将自动保存至当前项目..." class="w-full bg-transparent border-none focus:ring-0 text-[13px] text-gray-800 placeholder:text-gray-300 resize-none h-24 font-light leading-relaxed"></textarea>
+                    <div class="flex items-center justify-between border-t border-gray-50 pt-5 mt-2">
+                        <div class="flex items-center gap-3">
+                            <button onclick="refineWithNarrativeAI()" id="magicBtn" class="spotlight-btn px-6 py-2.5 rounded-2xl text-[10px] flex items-center gap-2 font-bold text-gray-500 hover:text-black transition-colors">
+                                <i class="fas fa-wand-magic-sparkles text-amber-600"></i><span>提示词AI优化</span>
+                            </button>
+                            <label class="spotlight-btn px-6 py-2.5 rounded-2xl text-[10px] flex items-center gap-2 font-bold text-gray-500 hover:text-black cursor-pointer transition-colors">
+                                <i class="fas fa-image"></i><span>上传底图</span><input type="file" multiple accept="image/*" class="hidden" onchange="captureAssets(this.files)">
+                            </label>
+                            <label class="spotlight-btn px-4 py-2.5 rounded-2xl text-[9px] flex items-center gap-1.5 font-bold text-amber-600 hover:text-amber-700 cursor-pointer transition-colors border border-amber-100">
+                                <i class="fas fa-palette"></i><span>风格参考</span><input type="file" multiple accept="image/*" class="hidden" onchange="captureStyleAssets(this.files)">
+                            </label>
+                        </div>
+                        <button onclick="executeSynthesis()" class="spotlight-btn btn-black px-12 py-3.5 rounded-2xl text-[10px] font-bold flex items-center gap-3 shadow-2xl">
+                            <span>开始生图</span><i class="fas fa-chevron-right text-[8px]"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const INTERNAL_SF_KEY = 'sk-rudcrnbhwykshkezbwaojyucwlqrfmcoebnmcootdgdehcqc';
+        let platformState = {
+            ratio: '1:1',
+            res: '1K',
+            n: 1,
+            currentRefImgs: [],
+            styleReferenceImages: [],
+            currentAnnotatedImage: null,
+            currentProject: '默认项目',
+            history: [],
+            selectedTags: { scenario: '', ratio: '1:1', quality: '1K' },
+            promptTemplateActive: false,    // 提示词模板功能是否激活
+            currentTemplateCategory: null,  // 当前二级功能分类
+            currentTemplateId: null,        // 当前选中的模板ID
+            selectedTemplates: {}           // 已选择的模板，按二级功能分类存储 { category: templateId }
+        };
+        let projects = ['默认项目'];
+
+        // ========== 常量与配置 ==========
+        const API_ENDPOINTS = {
+            generations: 'https://api.apimart.ai/v1/images/generations',
+            tasks: 'https://api.apimart.ai/v1/tasks/'
+        };
+        const MAX_HISTORY = 50;
+        const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7天
+
+        // ========== 提示词模板数据 ==========
+        const PROMPT_TEMPLATES = {
+            '精细渲染': [
+                { id: 'masterplan_to_birdseye', name: '总图转鸟瞰', description: '将平面总图转换为鸟瞰视角', systemPrompt: '根据提供的总平图生成低空45度鸟瞰视角的真实摄影照片。画面需完整呈现场景全貌及周边环境，同时保持原有用地形状与图像比例不变。要求构建真实的植物与景观环境的细节，使用广角镜头营造空间感，最终成像需具备真实高级摄影质感。', previewImage: '', needReference: false, tags: ['鸟瞰', '总图', '转换'] },
+                { id: 'site_redesign_ref', name: '场地重设计（需参考图）', description: '基于参考图重新设计场地', systemPrompt: '根据图一的场地红线以及道路结构，根据参考图图二的建筑设计手法和元素，对图一的场地进行重新设计，并且变为一张优秀的建筑鸟瞰效果图。不要改变图一的场地形状以及周边结构。但是需要将图二的建筑设计根据图一的尺度在图一的场地中重新设计。并在生成结果中保留场地红线', previewImage: '', needReference: true, tags: ['重设计', '参考图', '场地'] },
+                { id: 'realistic_masterplan', name: '写实风格总图', description: '写实风格的总图渲染', systemPrompt: '将此总平面图转化为[写实照片风格]。在保留原有线条轮廓与细节的基础上，将屋顶设为白色，道路为浅灰色，并点缀浅绿色的树木植物，为整个画面添加柔和的投影，使其成为一张生动而立体的彩色总平面图', previewImage: '', needReference: false, tags: ['写实', '总图', '渲染'] },
+                { id: 'color_masterplan', name: '彩色总平面', description: '彩色总平面图渲染', systemPrompt: '', previewImage: '', needReference: false, tags: ['彩色', '总平面', '渲染'] },
+                { id: 'birdseye_render', name: '鸟瞰图渲染', description: '高质量鸟瞰图渲染', systemPrompt: '', previewImage: '', needReference: false, tags: ['鸟瞰', '渲染', '高质量'] },
+                { id: 'birdseye_render_ref', name: '鸟瞰图渲染（需参考图）', description: '基于参考图的鸟瞰图渲染', systemPrompt: '', previewImage: '', needReference: true, tags: ['鸟瞰', '参考图', '渲染'] },
+                { id: 'effect_render', name: '效果图渲染', description: '建筑效果图渲染', systemPrompt: '', previewImage: '', needReference: false, tags: ['效果图', '渲染', '建筑'] },
+                { id: 'effect_render_ref', name: '效果图渲染（需参考图）', description: '基于参考图的效果图渲染', systemPrompt: '', previewImage: '', needReference: true, tags: ['效果图', '参考图', '渲染'] }
+            ],
+            '视角转换': [
+                { id: 'view_birdseye', name: '鸟瞰视角', description: '从鸟瞰视角呈现场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['鸟瞰', '视角', '转换'] },
+                { id: 'view_arrow', name: '箭头指定视角', description: '按箭头指定的方向渲染视角', systemPrompt: '', previewImage: '', needReference: false, tags: ['箭头', '视角', '指定'] },
+                { id: 'view_front', name: '正面视角', description: '从正面观察建筑的视角', systemPrompt: '', previewImage: '', needReference: false, tags: ['正面', '视角', '建筑'] },
+                { id: 'view_bottom_up', name: '仰视视角', description: '从下往上仰视建筑的视角', systemPrompt: '', previewImage: '', needReference: false, tags: ['仰视', '视角', '建筑'] },
+                { id: 'view_semi_birdseye', name: '半鸟瞰视角', description: '半鸟瞰的观察视角', systemPrompt: '', previewImage: '', needReference: false, tags: ['半鸟瞰', '视角', '转换'] },
+                { id: 'view_side', name: '侧面视角', description: '从侧面观察建筑的视角', systemPrompt: '', previewImage: '', needReference: false, tags: ['侧面', '视角', '建筑'] }
+            ],
+            '氛围转换': [
+                { id: 'atmosphere_breakfast', name: '早晨', description: '早晨时段的氛围场景', systemPrompt: '将建筑场景的时间转化为早晨效果，清晨氛围，柔和的晨光，宁静平和。保持图片的结构和视角不变', previewImage: '', needReference: false, tags: ['早晨', '氛围', '时间'] },
+                { id: 'atmosphere_noon', name: '中午', description: '中午时段的氛围场景', systemPrompt: '将建筑场景的时间转化为中午效果，烈日当空，阳光强烈，阴影短而浓，色彩鲜明，氛围热烈。保持图片的结构和视角不变', previewImage: '', needReference: false, tags: ['中午', '氛围', '时间'] },
+                { id: 'atmosphere_dusk', name: '黄昏', description: '黄昏时段的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['黄昏', '氛围', '时间'] },
+                { id: 'atmosphere_night', name: '夜晚', description: '夜晚时段的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['夜晚', '氛围', '时间'] },
+                { id: 'atmosphere_spring', name: '春天白日', description: '春天白日的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['春天', '白日', '氛围'] },
+                { id: 'atmosphere_summer', name: '夏天白日', description: '夏天白日的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['夏天', '白日', '氛围'] },
+                { id: 'atmosphere_autumn', name: '秋天白日', description: '秋天白日的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['秋天', '白日', '氛围'] },
+                { id: 'atmosphere_winter', name: '冬天白日', description: '冬天白日的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['冬天', '白日', '氛围'] },
+                { id: 'atmosphere_fog', name: '雾天白日', description: '雾天白日的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['雾天', '白日', '氛围'] },
+                { id: 'atmosphere_rain', name: '雨天白日', description: '雨天白日的氛围场景', systemPrompt: '', previewImage: '', needReference: false, tags: ['雨天', '白日', '氛围'] }
+            ],
+            '风格转换': [
+                { id: 'style_realistic', name: '写实风格', description: '写实风格的渲染效果', systemPrompt: '', previewImage: '', needReference: false, tags: ['写实', '风格', '渲染'] },
+                { id: 'style_handdrawn', name: '手绘风格', description: '手绘风格的渲染效果', systemPrompt: '', previewImage: '', needReference: false, tags: ['手绘', '风格', '艺术'] },
+                { id: 'style_illustration', name: '插画风格', description: '插画风格的渲染效果', systemPrompt: '', previewImage: '', needReference: false, tags: ['插画', '风格', '艺术'] },
+                { id: 'style_collage', name: '拼贴风格', description: '拼贴风格的渲染效果', systemPrompt: '', previewImage: '', needReference: false, tags: ['拼贴', '风格', '艺术'] },
+                { id: 'style_acrylic', name: '亚克力风格', description: '亚克力风格的渲染效果', systemPrompt: '', previewImage: '', needReference: false, tags: ['亚克力', '风格', '材料'] },
+                { id: 'style_axonometric', name: '轴测风格', description: '轴测风格的渲染效果', systemPrompt: '', previewImage: '', needReference: false, tags: ['轴测', '风格', '视角'] },
+                { id: 'style_wooden', name: '木质风格', description: '木质风格的渲染效果', systemPrompt: '', previewImage: '', needReference: false, tags: ['木质', '风格', '材料'] }
+            ],
+            '替换': [
+                { id: 'replace_object_ref', name: '物体替换（需参考图）', description: '用参考图中的物体替换原图中的物体', systemPrompt: '', previewImage: '', needReference: true, tags: ['物体', '替换', '参考图'] },
+                { id: 'replace_material_ref', name: '材质替换（需参考图）', description: '用参考图中的材质替换原图材质', systemPrompt: '', previewImage: '', needReference: true, tags: ['材质', '替换', '参考图'] },
+                { id: 'replace_text', name: '文字替换', description: '替换图片中的文字内容', systemPrompt: '', previewImage: '', needReference: false, tags: ['文字', '替换', '内容'] },
+                { id: 'replace_content', name: '内容替换', description: '替换图片中的部分内容', systemPrompt: '', previewImage: '', needReference: false, tags: ['内容', '替换', '编辑'] }
+            ],
+            '分析图绘制': [
+                { id: 'analysis_color_axonometric', name: '彩色轴测分析图', description: '彩色轴测风格的分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['彩色', '轴测', '分析图'] },
+                { id: 'analysis_white_axonometric', name: '白膜轴测分析图', description: '白膜轴测风格的分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['白膜', '轴测', '分析图'] },
+                { id: 'analysis_site', name: '场地分析图', description: '场地条件的分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['场地', '分析图', '条件'] },
+                { id: 'analysis_function', name: '功能分区分析图', description: '功能分区的分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['功能', '分区', '分析图'] },
+                { id: 'analysis_site_planning', name: '场地规划分析图', description: '场地规划的分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['场地', '规划', '分析图'] },
+                { id: 'analysis_flow', name: '线稿流线分析图', description: '线稿风格的流线分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['线稿', '流线', '分析图'] },
+                { id: 'analysis_sunlight', name: '日照分析图', description: '日照条件的分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['日照', '分析图', '环境'] },
+                { id: 'analysis_building_explosion', name: '建筑爆炸分析图', description: '建筑爆炸图分析', systemPrompt: '', previewImage: '', needReference: false, tags: ['爆炸', '建筑', '分析图'] },
+                { id: 'analysis_landscape_explosion', name: '景观爆炸分析图', description: '景观爆炸图分析', systemPrompt: '', previewImage: '', needReference: false, tags: ['爆炸', '景观', '分析图'] },
+                { id: 'analysis_form_evolution', name: '造型演变分析图', description: '建筑造型演变分析', systemPrompt: '', previewImage: '', needReference: false, tags: ['造型', '演变', '分析图'] },
+                { id: 'analysis_design_generation', name: '设计生成分析图', description: '设计生成过程分析', systemPrompt: '', previewImage: '', needReference: false, tags: ['设计', '生成', '分析图'] },
+                { id: 'analysis_section_perspective', name: '剖透视分析图', description: '剖透视分析图', systemPrompt: '', previewImage: '', needReference: false, tags: ['剖透视', '分析图', '剖面'] }
+            ]
+        };
+
+        // ========== 数据层 ==========
+        const db = new Dexie('NanoBananaDB');
+        db.version(1).stores({
+            projects: '++id, userId, name, createdAt',
+            generations: '++id, projectId, userId, status, createdAt',
+            images: '++id, type, createdAt',
+            users: 'id, lastLoginAt'
+        });
+
+        // 数据操作辅助函数
+        async function saveProjectToDB(name, userId) {
+            return await db.projects.add({
+                name,
+                userId,
+                createdAt: new Date()
+            });
+        }
+
+        async function loadProjectsFromDB(userId) {
+            return await db.projects.where('userId').equals(userId).toArray();
+        }
+
+        async function saveUserToDB(user) {
+            const existing = await db.users.get(user);
+            const userData = {
+                id: user,
+                lastLoginAt: new Date()
+            };
+            if (existing) {
+                await db.users.put(userData);
+            } else {
+                await db.users.add(userData);
+            }
+        }
+
+        async function saveGenerationToDB(generation) {
+            return await db.generations.add(generation);
+        }
+
+        async function loadGenerationsFromDB(userId, projectId) {
+            return await db.generations
+                .where('userId').equals(userId)
+                .and(g => g.projectId === projectId)
+                .reverse()
+                .toArray();
+        }
+
+        // 密码加密
+        function hashPassword(password) {
+            return CryptoJS.SHA256(password).toString();
+        }
+
+        // API密钥加密
+        function encryptApiKey(apiKey) {
+            return CryptoJS.AES.encrypt(apiKey, 'nano-banana-secret').toString();
+        }
+
+        function decryptApiKey(encryptedKey) {
+            const bytes = CryptoJS.AES.decrypt(encryptedKey, 'nano-banana-secret');
+            return bytes.toString(CryptoJS.enc.Utf8);
+        }
+
+        // --- 核心：用户系统与项目增强 (新增删除、重命名) ---
+        async function handleLogin() {
+            try {
+                console.log('开始登录...');
+
+                // 检查依赖库是否加载
+                if (typeof CryptoJS === 'undefined') {
+                    alert('CryptoJS 库未加载，请刷新页面重试');
+                    console.error('CryptoJS 未加载');
+                    return;
+                }
+                if (typeof Dexie === 'undefined') {
+                    alert('Dexie.js 库未加载，请刷新页面重试');
+                    console.error('Dexie 未加载');
+                    return;
+                }
+
+                const user = document.getElementById('userAccount').value;
+                const pwd = document.getElementById('userPwd').value;
+                if(!user || !pwd) return alert("请输入完整账号和密码");
+
+                console.log('用户输入:', user);
+
+                // 保存用户到数据库
+                await saveUserToDB(user);
+                console.log('用户已保存到数据库');
+
+                // 创建会话令牌并保存到 localStorage
+                const sessionToken = CryptoJS.lib.WordArray.random(32).toString();
+                const sessionData = {
+                    userId: user,
+                    token: sessionToken,
+                    expiresAt: Date.now() + SESSION_DURATION
+                };
+                localStorage.setItem('nano_session', JSON.stringify(sessionData));
+                console.log('会话已创建');
+
+                // 保存加密的 API 密钥（如果有）
+                const apiKey = document.getElementById('apiMartKey').value;
+                if(apiKey) {
+                    localStorage.setItem('nano_api_key', encryptApiKey(apiKey));
+                }
+
+                document.getElementById('currentUserName').innerText = user;
+                document.getElementById('authOverlay').style.display = 'none';
+                console.log('登录遮罩已隐藏');
+
+                await initData(user);
+                console.log('用户数据已初始化');
+                alert('登录成功！');
+            } catch (error) {
+                console.error('登录失败:', error);
+                alert('登录失败: ' + error.message);
+            }
+        }
+
+        async function initData(user) {
+            // 尝试从 IndexedDB 加载数据
+            try {
+                const dbProjects = await loadProjectsFromDB(user);
+                if(dbProjects.length > 0) {
+                    projects = dbProjects.map(p => p.name);
+                }
+            } catch(e) {
+                console.log('IndexedDB 不可用，使用 localStorage');
+                // 降级到 localStorage
+                const savedP = localStorage.getItem(`projects_${user}`);
+                const savedH = localStorage.getItem(`history_${user}`);
+                if(savedP) projects = JSON.parse(savedP);
+                if(savedH) platformState.history = JSON.parse(savedH);
+            }
+
+            renderProjectList();
+            switchProject(platformState.currentProject);
+
+            // 恢复 API 密钥
+            const encryptedKey = localStorage.getItem('nano_api_key');
+            if(encryptedKey) {
+                try {
+                    const decryptedKey = decryptApiKey(encryptedKey);
+                    document.getElementById('apiMartKey').value = decryptedKey;
+                } catch(e) {
+                    console.log('API 密钥解密失败');
+                }
+            }
+        }
+
+        // 检查会话是否有效
+        async function checkSession() {
+            try {
+                const sessionStr = localStorage.getItem('nano_session');
+                if(!sessionStr) {
+                    console.log('没有找到会话，显示登录界面');
+                    return false;
+                }
+
+                const session = JSON.parse(sessionStr);
+                if(Date.now() > session.expiresAt) {
+                    localStorage.removeItem('nano_session');
+                    console.log('会话已过期，显示登录界面');
+                    return false;
+                }
+
+                // 从数据库恢复用户信息
+                const user = session.userId;
+                console.log('找到有效会话:', user);
+                document.getElementById('currentUserName').innerText = user;
+                document.getElementById('authOverlay').style.display = 'none';
+                await initData(user);
+                return true;
+            } catch(e) {
+                console.error('检查会话时出错:', e);
+                return false;
+            }
+        }
+
+        // 页面加载时检查会话
+        (async function() {
+            console.log('页面初始化开始...');
+            console.log('CryptoJS:', typeof CryptoJS);
+            console.log('Dexie:', typeof Dexie);
+            console.log('fabric:', typeof fabric);
+
+            await checkSession();
+            console.log('页面初始化完成');
+        })();
+
+        function createNewProject() {
+            const name = prompt("项目名称");
+            if(name && !projects.includes(name)) { projects.push(name); saveAllData(); renderProjectList(); switchProject(name); }
+        }
+
+        function deleteProject(name, e) {
+            e.stopPropagation();
+            if(name === '默认项目') return alert("默认项目不可删除");
+            if(confirm(`确定删除项目 "${name}" 吗？该项目下的所有图片记录将被一并清除。`)) {
+                projects = projects.filter(p => p !== name);
+                platformState.history = platformState.history.filter(h => h.project !== name);
+                if(platformState.currentProject === name) platformState.currentProject = '默认项目';
+                saveAllData(); renderProjectList(); switchProject(platformState.currentProject);
+            }
+        }
+
+        function renameProject(name, e) {
+            e.stopPropagation();
+            const newName = prompt("请输入新的项目名称", name);
+            if(newName && newName !== name && !projects.includes(newName)) {
+                projects = projects.map(p => p === name ? newName : p);
+                platformState.history = platformState.history.map(h => {
+                    if(h.project === name) h.project = newName;
+                    return h;
+                });
+                if(platformState.currentProject === name) platformState.currentProject = newName;
+                saveAllData(); renderProjectList(); switchProject(platformState.currentProject);
+            }
+        }
+
+        function renderProjectList() {
+            const list = document.getElementById('projectList');
+            list.innerHTML = '';
+            projects.forEach(p => {
+                const div = document.createElement('div');
+                div.className = `project-item ${platformState.currentProject === p ? 'active' : ''}`;
+                div.innerHTML = `
+                    <div class="flex items-center"><i class="far fa-folder-open mr-3"></i> ${p}</div>
+                    <div class="project-actions">
+                        <i onclick="renameProject('${p}', event)" class="fas fa-pen hover:text-blue-500 transition-colors px-1" title="重命名"></i>
+                        <i onclick="deleteProject('${p}', event)" class="fas fa-trash-alt hover:text-red-500 transition-colors px-1" title="删除"></i>
+                    </div>`;
+                div.onclick = () => switchProject(p);
+                list.appendChild(div);
+            });
+        }
+
+        function switchProject(name) {
+            platformState.currentProject = name;
+            renderProjectList();
+            const track = document.getElementById('historyTrack');
+            track.innerHTML = '';
+            const filtered = platformState.history.filter(h => h.project === name);
+            if(filtered.length === 0) {
+                track.innerHTML = '<div class="m-auto text-center opacity-10 select-none empty-hint"><p class="text-[11px] font-light tracking-[1em] uppercase tracking-widest italic">Project Records Empty</p></div>';
+            } else {
+                filtered.forEach(item => {
+                    const card = createHistoryCard(item);
+                    track.appendChild(card);
+                    if(item.resultUrl) fillSuccessCard(card, item.resultUrl, item);
+                });
+            }
+        }
+
+        function saveAllData() {
+            const user = document.getElementById('currentUserName').innerText;
+            localStorage.setItem(`projects_${user}`, JSON.stringify(projects));
+            localStorage.setItem(`history_${user}`, JSON.stringify(platformState.history));
+        }
+
+        // --- 核心：查看与平移 (保持 V5.0 手感) ---
+        let scale = 1, isDragging = false, startX, startY, translateX = 0, translateY = 0;
+        function openModal(resultUrl, prompt = '', config = '', inputImgList = []) {
+            if(!resultUrl) return;
+            resetView();
+            document.getElementById('modalImg').src = resultUrl;
+            document.getElementById('modalPrompt').innerText = `"${prompt}"`;
+            const cfgArr = config.split(' | ');
+            document.getElementById('modalInputImages').innerHTML = '';
+            const allImgs = [{url: resultUrl, type: 'result'}, ...inputImgList.map(url => ({url, type: 'ref'}))];
+            allImgs.forEach((item, idx) => {
+                const thumb = document.createElement('img');
+                thumb.src = item.url; thumb.className = `modal-input-thumb ${idx === 0 ? 'active' : ''}`;
+                thumb.onclick = () => {
+                    document.querySelectorAll('.modal-input-thumb').forEach(t => t.classList.remove('active'));
+                    thumb.classList.add('active'); document.getElementById('modalImg').src = item.url; resetView();
+                };
+                document.getElementById('modalInputImages').appendChild(thumb);
+            });
+            document.getElementById('imgModal').style.display = 'flex';
+        }
+        function resetView() { scale = 1; translateX = 0; translateY = 0; updateTransform(); }
+        function updateTransform() { document.getElementById('imgWrapper').style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`; document.getElementById('zoomLevel').innerText = Math.round(scale * 100) + '%'; }
+        function startDrag(e) { e.preventDefault(); isDragging = true; startX = e.clientX - translateX; startY = e.clientY - translateY; }
+        function dragImage(e) { if (!isDragging) return; translateX = e.clientX - startX; translateY = e.clientY - startY; updateTransform(); }
+        function endDrag() { isDragging = false; }
+        function handleWheel(e) { e.preventDefault(); scale = Math.min(Math.max(0.4, scale + (e.deltaY > 0 ? -0.1 : 0.1)), 6); updateTransform(); }
+        function changeZoom(delta) { scale = Math.min(Math.max(0.4, scale + delta), 6); updateTransform(); }
+        function closeModal() { document.getElementById('imgModal').style.display = 'none'; }
+        
+        async function downloadCurrentImage() {
+            const url = document.getElementById('modalImg').src;
+            const r = await fetch(url); const blob = await r.blob();
+            const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
+            link.download = `Nano_Design_${Date.now()}.png`; link.click();
+        }
+
+        // --- 核心：系统提示词逻辑 (严禁修改) ---
+        async function refineWithNarrativeAI() {
+            const field = document.getElementById('promptInput'); const btn = document.getElementById('magicBtn');
+            if(!field.value.trim()) return alert("请输入想法");
+            const original = field.value; btn.disabled = true; field.value = "AI正在进行提示词优化…...";
+            try {
+                const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${INTERNAL_SF_KEY}` },
+                    body: JSON.stringify({
+                        model: "Qwen/Qwen2.5-72B-Instruct",
+                        messages: [
+                            { role: "system", content: "你是一位深耕于建筑与城市设计领域的效果图渲染大师，擅长效果图渲染的场景细节、氛围细节、光影细节等。你擅长将用户输入的提示词 。你的任务是深度理解用户原始提示词并在此基础上进行合理优化拓展，并将用户输入的提示词重写为更符合 Nano Banana 理解与执行逻辑的专业提示词。你的输出应当让：图像更稳定；细节更清晰；风格更可控；但看起来仍然是用户自己写的。直接输出改写后的提示词内容，不输出任何解释。" },
+                            { role: "user", content: `${original}` }
+                        ], temperature: 0.5
+                    })
+                });
+                const res = await response.json(); field.value = res.choices[0].message.content;
+            } catch (e) { field.value = original; } finally { btn.disabled = false; }
+        }
+
+        // ========== 提示词模板功能 ==========
+
+        /**
+         * 切换提示词模板面板的显示/隐藏
+         */
+        function togglePromptTemplate() {
+            const panel = document.getElementById('templateSecondaryPanel');
+            const btn = document.getElementById('promptTemplateBtn');
+            const arrow = document.getElementById('templateArrow');
+
+            platformState.promptTemplateActive = !platformState.promptTemplateActive;
+
+            if (platformState.promptTemplateActive) {
+                panel.classList.remove('hidden');
+                btn.classList.add('active');
+                arrow.style.transform = 'rotate(90deg)';
+                renderTemplateSecondaryMenu();
+            } else {
+                panel.classList.add('hidden');
+                btn.classList.remove('active');
+                arrow.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        /**
+         * 渲染二级功能菜单
+         */
+        function renderTemplateSecondaryMenu() {
+            const panel = document.getElementById('templateSecondaryPanel');
+            panel.innerHTML = '';
+
+            Object.keys(PROMPT_TEMPLATES).forEach(category => {
+                const btn = document.createElement('button');
+                btn.className = 'template-secondary-btn';
+                btn.innerHTML = `<i class="fas fa-folder"></i><span>${category}</span>`;
+                btn.onclick = () => openTemplateTertiaryPanel(category);
+                panel.appendChild(btn);
+            });
+        }
+
+        /**
+         * 打开三级功能面板
+         * @param {string} category - 二级功能分类名称
+         */
+        function openTemplateTertiaryPanel(category) {
+            platformState.currentTemplateCategory = category;
+
+            // 更新面包屑
+            document.getElementById('templateBreadcrumbCategory').textContent = category;
+
+            // 显示面板
+            document.getElementById('templateTertiaryPanel').classList.remove('hidden');
+
+            // 渲染模板卡片
+            renderTemplateCards(category);
+        }
+
+        /**
+         * 渲染三级功能模板卡片网格
+         * @param {string} category - 二级功能分类名称
+         */
+        function renderTemplateCards(category) {
+            const grid = document.getElementById('templateCardsGrid');
+            grid.innerHTML = '';
+
+            const templates = PROMPT_TEMPLATES[category] || [];
+
+            templates.forEach(template => {
+                const card = document.createElement('div');
+                card.className = 'template-card';
+
+                // 检查该模板是否已被选择
+                if (platformState.selectedTemplates[category] === template.id) {
+                    card.classList.add('selected');
+                }
+
+                card.onclick = () => applyTemplate(template.id);
+
+                // 预览图（如果有）
+                let imageContent = '<i class="fas fa-image"></i>';
+                if (template.previewImage) {
+                    imageContent = `<img src="${template.previewImage}" alt="${template.name}">`;
+                }
+
+                // 是否需要参考图标签
+                const needRefTag = template.needReference ? '<span class="template-tag need-ref">需参考图</span>' : '';
+
+                card.innerHTML = `
+                    <div class="template-card-image">${imageContent}</div>
+                    ${needRefTag}
+                    <button class="detail-btn" onclick="event.stopPropagation(); openTemplateDetailModal('${template.id}')">详情</button>
+                    <div class="template-card-info">
+                        <div class="template-card-name">${template.name}</div>
+                        <div class="template-card-desc">${template.description}</div>
+                    </div>
+                `;
+
+                grid.appendChild(card);
+            });
+
+            // 更新已选择模板的 UI 显示
+            renderSelectedTemplatesUI();
+        }
+
+        /**
+         * 存储当前查看的模板ID
+         */
+        let currentViewingTemplateId = null;
+
+        /**
+         * 打开模板详情 Modal
+         * @param {string} templateId - 模板ID
+         */
+        function openTemplateDetailModal(templateId) {
+            currentViewingTemplateId = templateId;
+
+            // 查找模板数据
+            let template = null;
+            for (const category in PROMPT_TEMPLATES) {
+                const found = PROMPT_TEMPLATES[category].find(t => t.id === templateId);
+                if (found) {
+                    template = found;
+                    break;
+                }
+            }
+
+            if (!template) return;
+
+            // 填充内容
+            document.getElementById('templateDetailName').textContent = template.name;
+            document.getElementById('templateDetailDesc').textContent = template.description;
+
+            // 标签
+            const tagsContainer = document.getElementById('templateDetailTags');
+            tagsContainer.innerHTML = '';
+            template.tags.forEach(tag => {
+                const tagEl = document.createElement('span');
+                tagEl.className = 'detail-tag';
+                tagEl.textContent = tag;
+                tagsContainer.appendChild(tagEl);
+            });
+            if (template.needReference) {
+                const refTag = document.createElement('span');
+                refTag.className = 'detail-tag';
+                refTag.style.background = '#fff5f5';
+                refTag.style.color = '#ff4444';
+                refTag.textContent = '需参考图';
+                tagsContainer.appendChild(refTag);
+            }
+
+            // 提示词
+            const promptEl = document.getElementById('templateDetailPrompt');
+            if (template.systemPrompt) {
+                promptEl.textContent = template.systemPrompt;
+            } else {
+                promptEl.innerHTML = '<span class="text-gray-400 italic">// TODO: 系统提示词待填充</span>';
+            }
+
+            // 预览图
+            const imageContainer = document.getElementById('templateDetailImageContainer');
+            if (template.previewImage) {
+                imageContainer.innerHTML = `<img src="${template.previewImage}" alt="${template.name}" class="w-full h-full object-cover">`;
+            } else {
+                imageContainer.innerHTML = '<i class="fas fa-image text-gray-300 text-4xl"></i>';
+            }
+
+            // 显示 Modal
+            document.getElementById('templateDetailModal').style.display = 'block';
+        }
+
+        /**
+         * 关闭模板详情 Modal
+         */
+        function closeTemplateDetailModal() {
+            document.getElementById('templateDetailModal').style.display = 'none';
+            currentViewingTemplateId = null;
+        }
+
+        /**
+         * 从详情 Modal 应用模板
+         */
+        function applyTemplateFromModal() {
+            if (currentViewingTemplateId) {
+                applyTemplate(currentViewingTemplateId);
+                closeTemplateDetailModal();
+                closeTemplateTertiaryPanel();
+            }
+        }
+
+        /**
+         * 应用模板到输入框
+         * @param {string} templateId - 模板ID
+         */
+        function applyTemplate(templateId) {
+            // 查找模板数据及其所属分类
+            let template = null;
+            let templateCategory = null;
+            for (const category in PROMPT_TEMPLATES) {
+                const found = PROMPT_TEMPLATES[category].find(t => t.id === templateId);
+                if (found) {
+                    template = found;
+                    templateCategory = category;
+                    break;
+                }
+            }
+
+            if (!template) return;
+
+            // 更新已选择的模板状态
+            platformState.selectedTemplates[templateCategory] = templateId;
+
+            // 构建合并后的提示词
+            const promptInput = document.getElementById('promptInput');
+            let combinedPrompt = '';
+
+            // 收集所有已选择模板的提示词
+            for (const category in platformState.selectedTemplates) {
+                const selectedId = platformState.selectedTemplates[category];
+                const selectedTemplate = PROMPT_TEMPLATES[category].find(t => t.id === selectedId);
+                if (selectedTemplate && selectedTemplate.systemPrompt) {
+                    combinedPrompt += `【${category} - ${selectedTemplate.name}】\n${selectedTemplate.systemPrompt}\n\n`;
+                }
+            }
+
+            // 填充合并后的提示词到输入框
+            if (combinedPrompt) {
+                promptInput.value = combinedPrompt.trim();
+            } else if (template.systemPrompt) {
+                promptInput.value = template.systemPrompt;
+            } else {
+                // 如果提示词未填充，显示提示
+                alert(`模板"${template.name}"的系统提示词尚未填充，请在代码中完善。`);
+                promptInput.value = `[${template.name}] // TODO: 系统提示词待填充\n\n请在此输入您的提示词...`;
+            }
+
+            // 更新已选择模板的 UI 显示
+            renderSelectedTemplatesUI();
+
+            // 关闭三级面板
+            closeTemplateTertiaryPanel();
+        }
+
+        /**
+         * 关闭三级功能面板
+         */
+        function closeTemplateTertiaryPanel() {
+            document.getElementById('templateTertiaryPanel').classList.add('hidden');
+            platformState.currentTemplateCategory = null;
+        }
+
+        /**
+         * 渲染已选择模板的 UI
+         */
+        function renderSelectedTemplatesUI() {
+            const area = document.getElementById('selectedTemplatesArea');
+            const container = document.getElementById('selectedTemplatesContainer');
+
+            // 获取已选择的模板数量
+            const selectedCount = Object.keys(platformState.selectedTemplates).length;
+
+            if (selectedCount === 0) {
+                area.classList.add('hidden');
+                return;
+            }
+
+            area.classList.remove('hidden');
+            container.innerHTML = '';
+
+            // 为每个已选择的模板创建标签
+            for (const category in platformState.selectedTemplates) {
+                const templateId = platformState.selectedTemplates[category];
+                const template = PROMPT_TEMPLATES[category].find(t => t.id === templateId);
+                if (template) {
+                    const tag = document.createElement('div');
+                    tag.className = 'selected-template-tag flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm';
+                    tag.innerHTML = `
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-gray-400">${category}</span>
+                            <span class="text-[10px] font-medium text-gray-700">${template.name}</span>
+                        </div>
+                        <button onclick="removeSelectedTemplate('${category}')" class="w-5 h-5 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-red-400 transition-all ml-1">
+                            <i class="fas fa-times text-[8px]"></i>
+                        </button>
+                    `;
+                    container.appendChild(tag);
+                }
+            }
+        }
+
+        /**
+         * 移除指定分类的已选择模板
+         * @param {string} category - 二级功能分类名称
+         */
+        function removeSelectedTemplate(category) {
+            delete platformState.selectedTemplates[category];
+            renderSelectedTemplatesUI();
+
+            // 如果输入框中的提示词是合并生成的，需要重新生成
+            updatePromptAfterRemoval();
+        }
+
+        /**
+         * 清空所有已选择的模板
+         */
+        function clearAllSelectedTemplates() {
+            if (Object.keys(platformState.selectedTemplates).length === 0) return;
+
+            if (confirm('确定要清空所有已选择的模板吗？')) {
+                platformState.selectedTemplates = {};
+                renderSelectedTemplatesUI();
+                document.getElementById('promptInput').value = '';
+            }
+        }
+
+        /**
+         * 移除模板后更新提示词
+         */
+        function updatePromptAfterRemoval() {
+            const promptInput = document.getElementById('promptInput');
+            let combinedPrompt = '';
+
+            for (const category in platformState.selectedTemplates) {
+                const selectedId = platformState.selectedTemplates[category];
+                const selectedTemplate = PROMPT_TEMPLATES[category].find(t => t.id === selectedId);
+                if (selectedTemplate && selectedTemplate.systemPrompt) {
+                    combinedPrompt += `【${category} - ${selectedTemplate.name}】\n${selectedTemplate.systemPrompt}\n\n`;
+                }
+            }
+
+            promptInput.value = combinedPrompt.trim();
+        }
+
+        // 参数选择互斥逻辑修复
+        function updateSelection(type, val, el) {
+            document.querySelectorAll(`.${type}-btn`).forEach(btn => btn.classList.remove('active-tag'));
+            el.classList.add('active-tag'); platformState[type] = val;
+        }
+
+        // ========== 结构化标签选择 ==========
+        function selectScenario(scenario, el) {
+            document.querySelectorAll('.scenario-btn').forEach(btn => btn.classList.remove('active-tag'));
+            el.classList.add('active-tag');
+            platformState.selectedTags.scenario = scenario;
+        }
+
+        // 画面比例初始化
+        const rConfigs = ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9", "4:5", "5:4"];
+        const ratioGrid = document.getElementById('ratioGrid');
+        rConfigs.forEach(r => {
+            const b = document.createElement('button'); b.innerText = r; b.className = `ratio-btn spotlight-btn py-2 text-[10px] border border-gray-100 rounded-lg bg-white hover:border-gray-300 hover:shadow-md transition-all ${r==='1:1'?'active-tag':''}`;
+            b.onclick = () => { document.querySelectorAll('.ratio-btn').forEach(el => el.classList.remove('active-tag')); b.classList.add('active-tag'); platformState.ratio = r; };
+            ratioGrid.appendChild(b);
+        });
+
+        async function executeSynthesis() {
+            const key = document.getElementById('apiMartKey').value; if(!key) return alert("请输入生图引擎密钥");
+            const prompt = document.getElementById('promptInput').value;
+            const refImgs = platformState.currentRefImgs.map(img => img.b64);
+            const styleImgs = platformState.styleReferenceImages.map(img => img.b64);
+            const annotatedImg = platformState.currentAnnotatedImage;
+
+            // 合并所有参考图
+            const allImgs = [...refImgs, ...styleImgs];
+            if(annotatedImg) allImgs.push(annotatedImg);
+
+            for(let i=0; i < platformState.n; i++) {
+                const snapshot = {
+                    id: Date.now() + Math.random(),
+                    project: platformState.currentProject,
+                    dt: new Date().toLocaleString('zh-CN', { hour12: false }),
+                    p: prompt,
+                    cfg: `${platformState.ratio} | ${platformState.res}`,
+                    tags: {...platformState.selectedTags},
+                    imgs: allImgs,
+                    resultUrl: null
+                };
+                platformState.history.push(snapshot);
+                saveAllData();
+                switchProject(platformState.currentProject);
+
+                try {
+                    const response = await fetch('https://api.apimart.ai/v1/images/generations', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${key}`
+                        },
+                        body: JSON.stringify({
+                            model: "gemini-3-pro-image-preview",
+                            prompt: prompt,
+                            size: platformState.ratio,
+                            n: 1,
+                            resolution: platformState.res,
+                            image_urls: allImgs.length > 0 ? allImgs.map(url => ({url})) : undefined
+                        })
+                    });
+                    const res = await response.json();
+                    if(res.code === 200) monitorTask(res.data[0].task_id, key, snapshot);
+                } catch (e) {
+                    console.error('生图失败:', e);
+                    alert('生图失败，请检查网络连接和 API 密钥');
+                }
+            }
+        }
+
+        async function monitorTask(tid, key, snapshot) {
+            const timer = setInterval(async () => {
+                try {
+                    const r = await fetch(`https://api.apimart.ai/v1/tasks/${tid}?language=zh`, { headers: { 'Authorization': `Bearer ${key}` } });
+                    const res = await r.json();
+                    if(res.code === 200 && res.data.status === 'completed') {
+                        clearInterval(timer); snapshot.resultUrl = res.data.result.images[0].url[0];
+                        saveAllData(); switchProject(platformState.currentProject);
+                    }
+                } catch(e) {}
+            }, 3000);
+        }
+
+        function createHistoryCard(meta) {
+            const div = document.createElement('div');
+            div.className = "w-80 flex-none bg-white rounded-[2.5rem] border border-gray-100 shadow-sm flex flex-col overflow-hidden animate-in fade-in slide-in-from-left-4 transition-all duration-500 hover:shadow-2xl";
+            div.innerHTML = `
+                <div class="h-80 bg-gray-50 flex items-center justify-center relative group overflow-hidden">
+                    <div class="spinner w-5 h-5 border border-gray-200 border-t-black rounded-full animate-spin"></div>
+                    <img class="final-img w-full h-full object-cover hidden transition-all duration-1000 group-hover:scale-110">
+                    ${meta.imgs.length > 0 ? `<div onclick="openModal('${meta.imgs[0]}', '设计参考图', 'Reference', [${meta.imgs.map(i=>`'${i}'`).join(',')}])" class="absolute bottom-4 left-4 w-12 h-12 rounded-xl border-2 border-white shadow-xl overflow-hidden z-10 hover:scale-110 transition cursor-zoom-in"><img src="${meta.imgs[0]}" class="w-full h-full object-cover"></div>` : ''}
+                    <div class="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 flex items-center justify-center transition pointer-events-none"><button class="view-btn hidden bg-white text-black text-[10px] font-bold px-6 py-2.5 rounded-full shadow-2xl pointer-events-auto active:scale-95 transition-all">查看方案详情</button></div>
+                </div>
+                <div class="p-6 flex flex-col gap-4">
+                    <div class="flex justify-between items-center border-b border-gray-50 pb-3"><span class="text-[9px] text-gray-400 font-mono">${meta.dt}</span><span class="status-tag text-[9px] font-bold text-gray-800 italic">Rendering</span></div>
+                    <p class="prompt-text text-[11px] text-gray-800 leading-relaxed line-clamp-2 font-light italic cursor-pointer hover:text-blue-500" onclick="this.classList.toggle('line-clamp-2')">"${meta.p}"</p>
+                    <span class="text-[9px] font-mono text-gray-300 uppercase font-bold">${meta.cfg}</span>
+                </div>`;
+            return div;
+        }
+
+        function fillSuccessCard(card, url, meta) {
+            card.querySelector('.spinner').classList.add('hidden');
+            const fImg = card.querySelector('.final-img'); fImg.src = url; fImg.classList.remove('hidden');
+            card.querySelector('.status-tag').innerText = 'Success'; card.querySelector('.status-tag').classList.replace('text-gray-800', 'text-green-500');
+            const vBtn = card.querySelector('.view-btn'); vBtn.classList.remove('hidden'); vBtn.onclick = () => openModal(url, meta.p, meta.cfg, meta.imgs);
+        }
+
+        function captureAssets(files) {
+            const tray = document.getElementById('imageTray'); tray.classList.remove('hidden');
+            Array.from(files).forEach((file, idx) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const id = Date.now() + idx;
+                    const b64 = e.target.result;
+                    const div = document.createElement('div');
+                    div.id = `up-${id}`;
+                    div.className = "relative group w-14 h-14 rounded-xl overflow-hidden border border-gray-100 shrink-0 shadow-sm transition-all hover:scale-105 cursor-pointer";
+                    div.innerHTML = `
+                        <img src="${b64}" class="w-full h-full object-cover" data-annotation-img="${id}">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex items-center justify-center gap-1">
+                            <button class="preview-btn text-white text-[8px] bg-blue-500/80 rounded px-1.5 py-0.5 hover:bg-blue-500 transition" title="预览" data-img-id="${id}">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="annotate-btn text-white text-[8px] bg-black/50 rounded px-1.5 py-0.5 hover:bg-black/80 transition" title="标注" data-img-id="${id}">
+                                <i class="fas fa-pencil-alt"></i>
+                            </button>
+                            <button class="delete-btn text-white text-[8px] bg-red-500/80 rounded px-1.5 py-0.5 hover:bg-red-500 transition" title="删除" data-img-id="${id}">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    `;
+                    tray.appendChild(div);
+                    platformState.currentRefImgs.push({id, b64});
+
+                    // 绑定事件监听器
+                    const img = div.querySelector('img');
+                    img.addEventListener('click', () => openModal(b64, '底图预览', '', [b64]));
+
+                    const previewBtn = div.querySelector('.preview-btn');
+                    previewBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openModal(b64, '底图预览', '', [b64]);
+                    });
+
+                    const annotateBtn = div.querySelector('.annotate-btn');
+                    annotateBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openAnnotationModal(b64);
+                    });
+
+                    const deleteBtn = div.querySelector('.delete-btn');
+                    deleteBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        removeAsset(id);
+                    });
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        function removeAsset(id) { document.getElementById(`up-${id}`).remove(); platformState.currentRefImgs = platformState.currentRefImgs.filter(i => i.id != id); if(platformState.currentRefImgs.length === 0) document.getElementById('imageTray').classList.add('hidden'); }
+
+        // ========== 风格参考图处理 ==========
+        function captureStyleAssets(files) {
+            const tray = document.getElementById('styleImageTray'); tray.classList.remove('hidden');
+            Array.from(files).forEach((file, idx) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const id = 'style-' + Date.now() + idx;
+                    const b64 = e.target.result;
+                    const div = document.createElement('div');
+                    div.id = `style-${id}`;
+                    div.className = "relative group w-14 h-14 rounded-xl overflow-hidden border-2 border-purple-200 shrink-0 shadow-sm transition-all hover:scale-105";
+                    div.innerHTML = `<img src="${b64}" class="w-full h-full object-cover"><div class="delete-style-btn absolute inset-0 bg-purple-500/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity"><i class="fas fa-times text-white text-[9px]"></i></div>`;
+                    tray.appendChild(div);
+                    platformState.styleReferenceImages.push({id, b64});
+
+                    // 绑定删除事件
+                    const deleteBtn = div.querySelector('.delete-style-btn');
+                    deleteBtn.addEventListener('click', () => removeStyleAsset(id));
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function removeStyleAsset(id) {
+            document.getElementById(`style-${id}`).remove();
+            platformState.styleReferenceImages = platformState.styleReferenceImages.filter(i => i.id != id);
+            if(platformState.styleReferenceImages.length === 0) {
+                document.getElementById('styleImageTray').classList.add('hidden');
+            }
+        }
+
+        // ========== 标注功能 ==========
+        let annotationCanvas;
+        let currentTool = 'brush';
+        let isCanvasReady = false;
+        let backgroundImageElement = null; // 存储背景图片元素
+
+        const annotationState = {
+            brushColor: '#000000',
+            brushSize: 20,
+            tolerance: 30,
+            isDrawing: false,
+            polygonPoints: [],
+            undoStack: [],
+            redoStack: [],
+            currentImageSrc: null,
+            imageLoaded: false,
+            wandMode: 'replace', // 默认为替换模式（Photoshop行为：直接点击=新选区，Shift+点击=增加，Alt+点击=减少）
+            wandContiguous: true,  // true=连续模式(泛洪填充), false=非连续模式(全图扫描)
+            isSavingState: false,  // 防止重复保存状态
+            // 魔棒选区像素集合（用于布尔运算）
+            selectionPixels: new Map(), // key: "x,y", value: {x, y}
+            // 缩放和平移状态
+            zoom: 1,
+            panX: 0,
+            panY: 0,
+            isPanning: false,
+            panStartX: 0,
+            panStartY: 0
+        };
+
+        // 套索工具专用变量
+        let polygonLines = [];
+        let tempLine = null;
+
+        // 标注 Modal 缩放和平移功能
+        function handleAnnotationWheel(e) {
+            if(!isCanvasReady || !annotationCanvas) return;
+            e.preventDefault();
+
+            // 计算新的缩放级别
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            const newZoom = Math.min(Math.max(0.4, annotationState.zoom + delta), 6);
+
+            // 以鼠标位置为中心进行缩放
+            const canvasEl = document.getElementById('annotationCanvas');
+            const rect = canvasEl.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            // 计算缩放前的鼠标在 Canvas 中的位置
+            const beforeZoomX = (mouseX - annotationState.panX) / annotationState.zoom;
+            const beforeZoomY = (mouseY - annotationState.panY) / annotationState.zoom;
+
+            // 更新缩放
+            annotationState.zoom = newZoom;
+
+            // 调整 pan 使缩放中心保持在鼠标位置
+            annotationState.panX = mouseX - beforeZoomX * annotationState.zoom;
+            annotationState.panY = mouseY - beforeZoomY * annotationState.zoom;
+
+            updateAnnotationTransform();
+        }
+
+        function updateAnnotationTransform() {
+            if(!annotationCanvas) return;
+            annotationCanvas.setViewportTransform([annotationState.zoom, 0, 0, annotationState.zoom, annotationState.panX, annotationState.panY]);
+
+            // 更新缩放显示
+            const zoomLevelEl = document.getElementById('annotationZoomLevel');
+            if(zoomLevelEl) {
+                zoomLevelEl.innerText = Math.round(annotationState.zoom * 100) + '%';
+            }
+        }
+
+        function resetAnnotationView() {
+            annotationState.zoom = 1;
+            annotationState.panX = 0;
+            annotationState.panY = 0;
+            updateAnnotationTransform();
+        }
+
+        function changeAnnotationZoom(delta) {
+            const newZoom = Math.min(Math.max(0.4, annotationState.zoom + delta), 6);
+
+            // 以画布中心为基准进行缩放
+            const canvasEl = document.getElementById('annotationCanvas');
+            const rect = canvasEl.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+
+            // 计算缩放前的中心点在 Canvas 中的位置
+            const beforeZoomX = (centerX - annotationState.panX) / annotationState.zoom;
+            const beforeZoomY = (centerY - annotationState.panY) / annotationState.zoom;
+
+            // 更新缩放
+            annotationState.zoom = newZoom;
+
+            // 调整 pan 使中心点保持不变
+            annotationState.panX = centerX - beforeZoomX * annotationState.zoom;
+            annotationState.panY = centerY - beforeZoomY * annotationState.zoom;
+
+            updateAnnotationTransform();
+        }
+
+        // 平移模式切换（空格键）
+        let spacePressed = false;
+        let originalTool = null;
+
+        // 全局修饰键状态跟踪（备用方案）
+        let globalShiftPressed = false;
+        let globalAltPressed = false;
+
+        // 打开标注 Modal
+        async function openAnnotationModal(imageSrc) {
+            console.log('=== openAnnotationModal 被调用 ===');
+
+            // 验证图片源
+            if(!imageSrc || typeof imageSrc !== 'string' || !imageSrc.startsWith('data:image')) {
+                alert('图片源无效，请重新选择图片');
+                return;
+            }
+
+            // 先清理旧状态
+            if(annotationCanvas) {
+                try {
+                    annotationCanvas.dispose();
+                } catch(e) {}
+                annotationCanvas = null;
+            }
+
+            // 重置状态
+            isCanvasReady = false;
+            annotationState.imageLoaded = false;
+            annotationState.currentImageSrc = null;
+            annotationState.undoStack = [];
+            annotationState.redoStack = [];
+            annotationState.polygonPoints = [];
+            annotationState.selectionPixels.clear(); // 重置魔棒选区像素集合
+            polygonLines = [];
+            tempLine = null;
+            backgroundImageElement = null;
+
+            // 显示 Modal
+            const modal = document.getElementById('annotationModal');
+            modal.style.display = 'block';
+            document.getElementById('annotationStatus').innerText = '正在初始化...';
+
+            // 重置 canvas placeholder
+            const placeholder = document.getElementById('canvasPlaceholder');
+            if(placeholder) {
+                placeholder.style.display = 'block';
+                placeholder.innerText = '正在加载图片...';
+            }
+
+            // 初始化 Canvas
+            setTimeout(() => {
+                initAnnotationCanvas(imageSrc);
+            }, 50);
+        }
+
+        function closeAnnotationModal() {
+            document.getElementById('annotationModal').style.display = 'none';
+            if(annotationCanvas) {
+                try {
+                    annotationCanvas.dispose();
+                } catch(e) {}
+                annotationCanvas = null;
+            }
+            isCanvasReady = false;
+            currentTool = 'brush';
+            backgroundImageElement = null;
+        }
+
+        // 初始化 Canvas
+        function initAnnotationCanvas(imageSrc) {
+            console.log('=== 开始初始化标注 Canvas ===');
+
+            // 清理旧 Canvas
+            if(annotationCanvas) {
+                try {
+                    annotationCanvas.off();
+                    annotationCanvas.dispose();
+                } catch(e) {}
+                annotationCanvas = null;
+            }
+
+            // 获取 Canvas 元素
+            const canvasEl = document.getElementById('annotationCanvas');
+            if(!canvasEl) {
+                alert('Canvas 元素未找到，请刷新页面重试');
+                return;
+            }
+
+            // 创建 Fabric Canvas
+            try {
+                annotationCanvas = new fabric.Canvas('annotationCanvas', {
+                    width: 800,
+                    height: 600,
+                    backgroundColor: '#f5f5f5',
+                    selection: false,
+                    renderOnAddRemove: true  // 改为 true，自动渲染
+                });
+            } catch(e) {
+                alert('Canvas 初始化失败: ' + e.message);
+                return;
+            }
+
+            // 加载图片
+            if(imageSrc) {
+                annotationState.currentImageSrc = imageSrc;
+                annotationState.imageLoaded = false;
+                document.getElementById('annotationStatus').innerText = '正在加载图片...';
+
+                // 使用原生 Image 对象加载，更可靠
+                const imgObj = new Image();
+                imgObj.onload = function() {
+                    console.log('✅ 图片加载成功！尺寸:', imgObj.width, 'x', imgObj.height);
+
+                    const scale = Math.min(800 / imgObj.width, 600 / imgObj.height);
+                    const fabricImg = new fabric.Image(imgObj, {
+                        scaleX: scale,
+                        scaleY: scale,
+                        left: (800 - imgObj.width * scale) / 2,
+                        top: (600 - imgObj.height * scale) / 2,
+                        selectable: false,
+                        evented: false
+                    });
+
+                    annotationCanvas.setBackgroundImage(fabricImg, function() {
+                        annotationCanvas.renderAll();
+                        annotationState.imageLoaded = true;
+                        backgroundImageElement = fabricImg;
+
+                        document.getElementById('canvasPlaceholder').style.display = 'none';
+
+                        bindAnnotationEvents();
+                        setupBrushTool();
+                        isCanvasReady = true;
+                        document.getElementById('annotationStatus').innerText = '工具: 画笔 - 就绪';
+                        console.log('=== Canvas 初始化完成 ===');
+
+                        // 保存初始状态
+                        saveAnnotationState();
+                    });
+                };
+
+                imgObj.onerror = function() {
+                    console.error('❌ 图片加载失败');
+                    document.getElementById('annotationStatus').innerText = '图片加载失败';
+                    alert('图片加载失败，请重试');
+                };
+
+                imgObj.src = imageSrc;
+            }
+        }
+
+        // 集中式事件处理
+        function bindAnnotationEvents() {
+            // 清除旧的事件监听
+            annotationCanvas.off('mouse:down');
+            annotationCanvas.off('mouse:move');
+            annotationCanvas.off('mouse:dblclick');
+            annotationCanvas.off('path:created');
+            annotationCanvas.off('mouse:up');
+
+            // 鼠标按下事件
+            annotationCanvas.on('mouse:down', function(options) {
+                if(!isCanvasReady) return;
+
+                // 空格键按下或中键按下 -> 平移模式
+                if(spacePressed || options.e.button === 1) {
+                    annotationState.isPanning = true;
+                    annotationState.panStartX = options.e.clientX - annotationState.panX;
+                    annotationState.panStartY = options.e.clientY - annotationState.panY;
+                    const canvasEl = document.getElementById('annotationCanvas');
+                    canvasEl.style.cursor = 'grabbing';
+                    return;
+                }
+
+                const pointer = annotationCanvas.getPointer(options.e);
+
+                switch(currentTool) {
+                    case 'lasso':
+                        handleLassoClick(pointer);
+                        break;
+                    case 'wand':
+                        // 调试：输出原始事件信息
+                        console.log('魔棒点击 - 原始事件对象:', {
+                            button: options.e?.button,
+                            shiftKey: options.e?.shiftKey,
+                            altKey: options.e?.altKey,
+                            ctrlKey: options.e?.ctrlKey,
+                            metaKey: options.e?.metaKey,
+                            pointer: pointer
+                        });
+                        performMagicWand(pointer.x, pointer.y, options.e);
+                        break;
+                    case 'text':
+                        handleTextClick(pointer);
+                        break;
+                }
+            });
+
+            // 鼠标移动事件
+            annotationCanvas.on('mouse:move', function(options) {
+                if(!isCanvasReady) return;
+
+                // 平移模式
+                if(annotationState.isPanning) {
+                    annotationState.panX = options.e.clientX - annotationState.panStartX;
+                    annotationState.panY = options.e.clientY - annotationState.panStartY;
+                    updateAnnotationTransform();
+                    return;
+                }
+
+                if(currentTool === 'lasso' && annotationState.polygonPoints.length > 0) {
+                    const pointer = annotationCanvas.getPointer(options.e);
+                    updateLassoPreview(pointer);
+                }
+            });
+
+            // 鼠标抬起事件
+            annotationCanvas.on('mouse:up', function(options) {
+                if(annotationState.isPanning) {
+                    annotationState.isPanning = false;
+                    const canvasEl = document.getElementById('annotationCanvas');
+                    canvasEl.style.cursor = '';
+                    return;
+                }
+            });
+
+            // 双击事件
+            annotationCanvas.on('mouse:dblclick', function(options) {
+                if(!isCanvasReady) return;
+                if(currentTool === 'lasso' && annotationState.polygonPoints.length >= 3) {
+                    completePolygon();
+                }
+            });
+
+            // 画笔绘制完成后自动保存状态
+            annotationCanvas.on('path:created', function() {
+                setTimeout(() => saveAnnotationState(), 50);
+            });
+
+            // 滚轮缩放事件 - 使用 Fabric.js 的鼠标:wheel 事件
+            annotationCanvas.on('mouse:wheel', function(options) {
+                if(!isCanvasReady) return;
+                options.e.preventDefault();
+                options.e.stopPropagation();
+
+                const delta = options.e.deltaY > 0 ? -0.1 : 0.1;
+                const newZoom = Math.min(Math.max(0.4, annotationState.zoom + delta), 6);
+
+                // 以鼠标位置为中心进行缩放
+                const canvasEl = document.getElementById('annotationCanvas');
+                const rect = canvasEl.getBoundingClientRect();
+                const mouseX = options.e.clientX - rect.left;
+                const mouseY = options.e.clientY - rect.top;
+
+                // 计算缩放前的鼠标在 Canvas 中的位置
+                const beforeZoomX = (mouseX - annotationState.panX) / annotationState.zoom;
+                const beforeZoomY = (mouseY - annotationState.panY) / annotationState.zoom;
+
+                // 更新缩放
+                annotationState.zoom = newZoom;
+
+                // 调整 pan 使缩放中心保持在鼠标位置
+                annotationState.panX = mouseX - beforeZoomX * annotationState.zoom;
+                annotationState.panY = mouseY - beforeZoomY * annotationState.zoom;
+
+                updateAnnotationTransform();
+            });
+        }
+
+        function saveAnnotationState() {
+            if(!annotationCanvas || !isCanvasReady || annotationState.isSavingState) return;
+
+            annotationState.isSavingState = true;
+            const state = JSON.stringify(annotationCanvas.toJSON());
+
+            // 避免重复保存相同状态
+            if(annotationState.undoStack.length > 0) {
+                const lastState = annotationState.undoStack[annotationState.undoStack.length - 1];
+                if(lastState === state) {
+                    annotationState.isSavingState = false;
+                    return;
+                }
+            }
+
+            annotationState.undoStack.push(state);
+            if(annotationState.undoStack.length > MAX_HISTORY) {
+                annotationState.undoStack.shift();
+            }
+            annotationState.redoStack = [];
+            annotationState.isSavingState = false;
+
+            console.log('状态已保存，撤销栈深度:', annotationState.undoStack.length);
+        }
+
+        // 画笔工具
+        function setupBrushTool() {
+            currentTool = 'brush';
+            document.getElementById('annotationStatus').innerText = isCanvasReady ? '工具: 画笔 - 就绪' : '工具: 画笔 - 加载中...';
+            if(!isCanvasReady) return;
+
+            annotationCanvas.isDrawingMode = true;
+            annotationCanvas.freeDrawingBrush = new fabric.PencilBrush(annotationCanvas);
+            updateBrushSettings();
+        }
+
+        function setTool(tool) {
+            if(!isCanvasReady) {
+                document.getElementById('annotationStatus').innerText = '请等待图片加载完成...';
+                return;
+            }
+
+            currentTool = tool;
+            document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`tool-${tool}`).classList.add('active');
+
+            annotationCanvas.isDrawingMode = false;
+            annotationCanvas.selection = false;
+
+            // 移除所有光标样式
+            const canvasEl = document.getElementById('annotationCanvas');
+            canvasEl.classList.remove('cursor-brush', 'cursor-lasso', 'cursor-wand', 'cursor-text');
+
+            switch(tool) {
+                case 'brush':
+                    setupBrushTool();
+                    canvasEl.classList.add('cursor-brush');
+                    break;
+                case 'lasso':
+                    setupLassoTool();
+                    canvasEl.classList.add('cursor-lasso');
+                    break;
+                case 'wand':
+                    setupWandTool();
+                    canvasEl.classList.add('cursor-wand');
+                    break;
+                case 'text':
+                    setupTextTool();
+                    canvasEl.classList.add('cursor-text');
+                    break;
+            }
+        }
+
+        // 键盘快捷键
+        document.addEventListener('keydown', function(e) {
+            // 调试：输出所有键盘事件
+            console.log('[键盘事件] keyCode=' + e.keyCode + ' e.key=' + e.key + ' e.code=' + e.code + ' e.shiftKey=' + e.shiftKey + ' e.altKey=' + e.altKey);
+
+            // 跟踪修饰键状态（用于魔棒工具）- 使用最兼容的方式
+            // Shift 键：keyCode 16 = Shift, ShiftLeft = 16, ShiftRight = 16
+            if(e.keyCode === 16 || e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                globalShiftPressed = true;
+                console.log('[修饰键] ✓ Shift 键按下！globalShiftPressed =', globalShiftPressed);
+            }
+            // Alt 键：keyCode 18 = Alt, AltLeft = 18, AltRight = 18
+            if(e.keyCode === 18 || e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight') {
+                globalAltPressed = true;
+                console.log('[修饰键] ✓ Alt 键按下！globalAltPressed =', globalAltPressed);
+            }
+
+            // ESC 键关闭模板相关面板（优先级最高）
+            if(e.key === 'Escape') {
+                const templateDetailModal = document.getElementById('templateDetailModal');
+                const templateTertiaryPanel = document.getElementById('templateTertiaryPanel');
+
+                if(templateDetailModal.style.display === 'block') {
+                    e.preventDefault();
+                    closeTemplateDetailModal();
+                    return;
+                }
+
+                if(!templateTertiaryPanel.classList.contains('hidden')) {
+                    e.preventDefault();
+                    closeTemplateTertiaryPanel();
+                    return;
+                }
+            }
+
+            // 只有在标注 Modal 打开时才响应快捷键
+            const modal = document.getElementById('annotationModal');
+            if(modal.style.display !== 'block') return;
+
+            // Ctrl+Z 撤销
+            if(e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                undoAnnotation();
+                return;
+            }
+
+            // Ctrl+Y 或 Ctrl+Shift+Z 恢复
+            if((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
+                e.preventDefault();
+                redoAnnotation();
+                return;
+            }
+
+            // Delete 删除选中对象
+            if(e.key === 'Delete' || e.key === 'Backspace') {
+                const activeObjects = annotationCanvas.getActiveObjects();
+                if(activeObjects.length > 0) {
+                    e.preventDefault();
+                    activeObjects.forEach(obj => {
+                        annotationCanvas.remove(obj);
+                    });
+                    annotationCanvas.discardActiveObject();
+                    annotationCanvas.renderAll();
+                }
+                return;
+            }
+
+            // C 键切换连续/非连续模式
+            if(e.key.toLowerCase() === 'c' && currentTool === 'wand') {
+                e.preventDefault();
+                toggleWandContiguous();
+                return;
+            }
+
+            // 空格键按下 -> 进入平移模式
+            if(e.code === 'Space' && !spacePressed) {
+                e.preventDefault();
+                spacePressed = true;
+                const canvasEl = document.getElementById('annotationCanvas');
+                canvasEl.style.cursor = 'grab';
+                return;
+            }
+
+            // 工具快捷键
+            if(!e.ctrlKey && !e.altKey && !e.metaKey && e.code !== 'Space') {
+                switch(e.key.toLowerCase()) {
+                    case 'b':
+                        setTool('brush');
+                        break;
+                    case 'l':
+                        setTool('lasso');
+                        break;
+                    case 'w':
+                        setTool('wand');
+                        break;
+                    case 't':
+                        setTool('text');
+                        break;
+                }
+            }
+        });
+
+        // 空格键松开事件
+        document.addEventListener('keyup', function(e) {
+            // 重置修饰键状态 - 使用最兼容的方式
+            if(e.keyCode === 18 || e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight') {
+                globalAltPressed = false;
+                console.log('[修饰键] Alt 键松开，globalAltPressed =', globalAltPressed);
+            }
+            if(e.keyCode === 16 || e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                globalShiftPressed = false;
+                console.log('[修饰键] Shift 键松开，globalShiftPressed =', globalShiftPressed);
+            }
+
+            if(e.code === 'Space' && spacePressed) {
+                spacePressed = false;
+                annotationState.isPanning = false;
+                const canvasEl = document.getElementById('annotationCanvas');
+                canvasEl.style.cursor = '';
+            }
+        });
+
+        function updateBrushSettings() {
+            if(annotationCanvas && annotationCanvas.freeDrawingBrush) {
+                annotationCanvas.freeDrawingBrush.color = annotationState.brushColor;
+                annotationCanvas.freeDrawingBrush.width = parseInt(annotationState.brushSize);
+            }
+        }
+
+        // ========== 套索工具（多边形选择）==========
+        function setupLassoTool() {
+            if(!isCanvasReady) return;
+
+            currentTool = 'lasso';
+            annotationCanvas.isDrawingMode = false;
+            annotationCanvas.selection = false;
+
+            document.getElementById('annotationStatus').innerText = '工具: 套索（点击绘制多边形，双击完成闭合）';
+            annotationState.polygonPoints = [];
+            polygonLines = [];
+
+            // 清除旧的临时元素
+            if(tempLine) {
+                annotationCanvas.remove(tempLine);
+                tempLine = null;
+            }
+        }
+
+        function handleLassoClick(pointer) {
+            if(!isCanvasReady || !annotationCanvas) return;
+
+            annotationState.polygonPoints.push(pointer);
+
+            // 添加点标记
+            const circle = new fabric.Circle({
+                left: pointer.x - 3,
+                top: pointer.y - 3,
+                radius: 3,
+                fill: annotationState.brushColor,
+                selectable: false,
+                evented: false
+            });
+            annotationCanvas.add(circle);
+
+            // 如果有之前的点，画线连接
+            if(annotationState.polygonPoints.length > 1) {
+                const prevPoint = annotationState.polygonPoints[annotationState.polygonPoints.length - 2];
+                const line = new fabric.Line([prevPoint.x, prevPoint.y, pointer.x, pointer.y], {
+                    stroke: annotationState.brushColor,
+                    strokeWidth: 2,
+                    selectable: false,
+                    evented: false
+                });
+                annotationCanvas.add(line);
+                polygonLines.push(line);
+            }
+
+            // 移除临时预览线
+            if(tempLine) {
+                annotationCanvas.remove(tempLine);
+                tempLine = null;
+            }
+
+            // 立即渲染
+            annotationCanvas.renderAll();
+        }
+
+        function updateLassoPreview(pointer) {
+            const lastPoint = annotationState.polygonPoints[annotationState.polygonPoints.length - 1];
+            if(!lastPoint) return;
+
+            // 移除旧的临时线
+            if(tempLine) {
+                annotationCanvas.remove(tempLine);
+            }
+
+            // 创建新的临时预览线
+            tempLine = new fabric.Line([lastPoint.x, lastPoint.y, pointer.x, pointer.y], {
+                stroke: annotationState.brushColor,
+                strokeWidth: 1,
+                strokeDashArray: [5, 5],
+                selectable: false,
+                evented: false,
+                opacity: 0.6
+            });
+            annotationCanvas.add(tempLine);
+            annotationCanvas.renderAll();
+        }
+
+        function completePolygon() {
+            if(annotationState.polygonPoints.length < 3) return;
+
+            // 移除临时预览线
+            if(tempLine) {
+                annotationCanvas.remove(tempLine);
+                tempLine = null;
+            }
+
+            // 移除所有辅助点标记和线条
+            polygonLines.forEach(line => annotationCanvas.remove(line));
+            const objects = annotationCanvas.getObjects();
+            for(let i = objects.length - 1; i >= 0; i--) {
+                if(objects[i].type === 'circle') {
+                    annotationCanvas.remove(objects[i]);
+                }
+            }
+
+            // 创建半透明填充的多边形
+            const polygonPoints = annotationState.polygonPoints.map(p => ({ x: p.x, y: p.y }));
+            const polygon = new fabric.Polygon(polygonPoints, {
+                fill: annotationState.brushColor + '40',
+                stroke: annotationState.brushColor,
+                strokeWidth: 2,
+                selectable: false,
+                evented: false
+            });
+            annotationCanvas.add(polygon);
+
+            // 渲染并保存状态
+            annotationCanvas.renderAll();
+            saveAnnotationState();
+
+            // 重置
+            annotationState.polygonPoints = [];
+            polygonLines = [];
+
+            document.getElementById('annotationStatus').innerText = '工具: 套索（已完成，可继续绘制）';
+        }
+
+        // ========== 魔棒工具（颜色相似度选择）==========
+        function setupWandTool() {
+            if(!isCanvasReady) return;
+
+            currentTool = 'wand';
+            annotationCanvas.isDrawingMode = false;
+            updateWandStatus();
+        }
+
+        function updateWandStatus() {
+            // 调试：输出当前模式
+            console.log('updateWandStatus - 当前模式:', annotationState.wandMode);
+
+            let modeText;
+            switch(annotationState.wandMode) {
+                case 'add':
+                    modeText = '增加选区';
+                    break;
+                case 'subtract':
+                    modeText = '减少选区';
+                    break;
+                case 'replace':
+                default:
+                    modeText = '新选区';
+                    break;
+            }
+            const contiguousText = annotationState.wandContiguous ? '连续' : '非连续';
+            document.getElementById('annotationStatus').innerText = `工具: 魔棒（${modeText} - ${contiguousText}模式，按住 Shift=增加，按住 Alt=减少，按 C 切换连续/非连续）`;
+
+            // 更新UI上的模式按钮
+            const modeBtn = document.getElementById('wandModeBtn');
+            const modeTextEl = document.getElementById('wandModeText');
+            if(modeBtn && modeTextEl) {
+                if(annotationState.wandMode === 'add') {
+                    modeTextEl.innerText = '增加';
+                    modeBtn.classList.remove('bg-red-50', 'border-red-300', 'bg-gray-50', 'border-gray-300');
+                    modeBtn.classList.add('bg-green-50', 'border-green-300');
+                } else if(annotationState.wandMode === 'subtract') {
+                    modeTextEl.innerText = '减少';
+                    modeBtn.classList.remove('bg-green-50', 'border-green-300', 'bg-gray-50', 'border-gray-300');
+                    modeBtn.classList.add('bg-red-50', 'border-red-300');
+                } else {
+                    modeTextEl.innerText = '新选区';
+                    modeBtn.classList.remove('bg-green-50', 'border-green-300', 'bg-red-50', 'border-red-300');
+                    modeBtn.classList.add('bg-gray-50', 'border-gray-300');
+                }
+            }
+
+            // 更新连续/非连续按钮
+            const contiguousBtn = document.getElementById('wandContiguousBtn');
+            const contiguousTextEl = document.getElementById('wandContiguousText');
+            if(contiguousBtn && contiguousTextEl) {
+                contiguousTextEl.innerText = annotationState.wandContiguous ? '连续' : '非连续';
+                if(annotationState.wandContiguous) {
+                    contiguousBtn.classList.remove('bg-blue-50', 'border-blue-300');
+                    contiguousBtn.classList.add('bg-green-50', 'border-green-300');
+                } else {
+                    contiguousBtn.classList.remove('bg-green-50', 'border-green-300');
+                    contiguousBtn.classList.add('bg-blue-50', 'border-blue-300');
+                }
+            }
+        }
+
+        function toggleWandMode() {
+            // 在 replace -> add -> subtract -> replace 之间循环
+            switch(annotationState.wandMode) {
+                case 'replace':
+                    annotationState.wandMode = 'add';
+                    break;
+                case 'add':
+                    annotationState.wandMode = 'subtract';
+                    break;
+                case 'subtract':
+                default:
+                    annotationState.wandMode = 'replace';
+                    break;
+            }
+            updateWandStatus();
+        }
+
+        function toggleWandContiguous() {
+            annotationState.wandContiguous = !annotationState.wandContiguous;
+            updateWandStatus();
+        }
+
+        // ========== Lab 色彩空间转换函数（更接近人眼感知，类似 Photoshop）==========
+        // RGB 转 XYZ
+        function rgbToXyz(r, g, b) {
+            // 归一化到 0-1
+            const rn = r / 255;
+            const gn = g / 255;
+            const bn = b / 255;
+
+            // Gamma 校正（sRGB）
+            const r2 = rn > 0.04045 ? Math.pow((rn + 0.055) / 1.055, 2.4) : rn / 12.92;
+            const g2 = gn > 0.04045 ? Math.pow((gn + 0.055) / 1.055, 2.4) : gn / 12.92;
+            const b2 = bn > 0.04045 ? Math.pow((bn + 0.055) / 1.055, 2.4) : bn / 12.92;
+
+            // RGB 转 XYZ（sRGB 矩阵）
+            const x = (r2 * 0.4124 + g2 * 0.3576 + b2 * 0.1805) * 100;
+            const y = (r2 * 0.2126 + g2 * 0.7152 + b2 * 0.0722) * 100;
+            const z = (r2 * 0.0193 + g2 * 0.1192 + b2 * 0.9505) * 100;
+
+            return { x, y, z };
+        }
+
+        // XYZ 转 Lab
+        function xyzToLab(x, y, z) {
+            // 参考白点 D65
+            const xn = x / 95.047;
+            const yn = y / 100.000;
+            const zn = z / 108.883;
+
+            const fx = xn > 0.008856 ? Math.pow(xn, 1/3) : (7.787 * xn + 16/116);
+            const fy = yn > 0.008856 ? Math.pow(yn, 1/3) : (7.787 * yn + 16/116);
+            const fz = zn > 0.008856 ? Math.pow(zn, 1/3) : (7.787 * zn + 16/116);
+
+            const L = 116 * fy - 16;
+            const a = 500 * (fx - fy);
+            const bVal = 200 * (fy - fz);
+
+            return { L, a, b: bVal };
+        }
+
+        // RGB 转 Lab（组合函数）
+        function rgbToLab(r, g, b) {
+            const xyz = rgbToXyz(r, g, b);
+            return xyzToLab(xyz.x, xyz.y, xyz.z);
+        }
+
+        // Lab 转 LCh（用于 CIEDE2000）
+        function labToLch(lab) {
+            const L = lab.L;
+            const C = Math.sqrt(lab.a * lab.a + lab.b * lab.b);
+            let h = Math.atan2(lab.b, lab.a) * 180 / Math.PI;
+            if(h < 0) h += 360;
+            return { L, C, h };
+        }
+
+        // CIEDE2000 颜色差异公式（比 Delta E76 更精确）
+        function ciede2000(lab1, lab2) {
+            const lch1 = labToLch(lab1);
+            const lch2 = labToLch(lab2);
+
+            const kL = 1, kC = 1, kH = 1;
+
+            const C1 = lch1.C;
+            const C2 = lch2.C;
+            const Cab = (C1 + C2) / 2;
+
+            const G = 0.5 * (1 - Math.sqrt(Math.pow(Cab, 7) / (Math.pow(Cab, 7) + Math.pow(25, 7))));
+
+            const a1p = lab1.a * (1 + G);
+            const a2p = lab2.a * (1 + G);
+
+            const C1p = Math.sqrt(a1p * a1p + lab1.b * lab1.b);
+            const C2p = Math.sqrt(a2p * a2p + lab2.b * lab2.b);
+
+            let h1p = Math.atan2(lab1.b, a1p) * 180 / Math.PI;
+            if(h1p < 0) h1p += 360;
+            let h2p = Math.atan2(lab2.b, a2p) * 180 / Math.PI;
+            if(h2p < 0) h2p += 360;
+
+            const dLp = lch2.L - lch1.L;
+            const dCp = C2p - C1p;
+
+            let dhp;
+            if(C1p * C2p === 0) {
+                dhp = 0;
+            } else if(Math.abs(h2p - h1p) <= 180) {
+                dhp = h2p - h1p;
+            } else if(h2p - h1p > 180) {
+                dhp = h2p - h1p - 360;
+            } else {
+                dhp = h2p - h1p + 360;
+            }
+
+            const dHp = 2 * Math.sqrt(C1p * C2p) * Math.sin(dhp * Math.PI / 360);
+
+            const Lp = (lch1.L + lch2.L) / 2;
+            const Cp = (C1p + C2p) / 2;
+
+            let Hp;
+            if(C1p * C2p === 0) {
+                Hp = h1p + h2p;
+            } else if(Math.abs(h1p - h2p) <= 180) {
+                Hp = (h1p + h2p) / 2;
+            } else if(h1p + h2p < 360) {
+                Hp = (h1p + h2p + 360) / 2;
+            } else {
+                Hp = (h1p + h2p - 360) / 2;
+            }
+
+            const T = 1 - 0.17 * Math.cos((Hp - 30) * Math.PI / 180)
+                      + 0.24 * Math.cos(2 * Hp * Math.PI / 180)
+                      + 0.32 * Math.cos((3 * Hp + 6) * Math.PI / 180)
+                      - 0.20 * Math.cos((4 * Hp - 63) * Math.PI / 180);
+
+            const SL = 1 + (0.015 * Math.pow(Lp - 50, 2)) / Math.sqrt(20 + Math.pow(Lp - 50, 2));
+            const SC = 1 + 0.045 * Cp;
+            const SH = 1 + 0.015 * Cp * T;
+
+            const RT = -2 * Math.sqrt(Math.pow(Cp, 7) / (Math.pow(Cp, 7) + Math.pow(25, 7)))
+                       * Math.sin(60 * Math.exp(-Math.pow((Hp - 275) / 25, 2)) * Math.PI / 180);
+
+            const dE = Math.sqrt(
+                Math.pow(dLp / (kL * SL), 2) +
+                Math.pow(dCp / (kC * SC), 2) +
+                Math.pow(dHp / (kH * SH), 2) +
+                RT * (dCp / (kC * SC)) * (dHp / (kH * SH))
+            );
+
+            return dE;
+        }
+
+        // 计算 Lab 色彩差异（Delta E）- 使用 CIEDE2000
+        function labDeltaE(lab1, lab2) {
+            return ciede2000(lab1, lab2);
+        }
+
+        function performMagicWand(startX, startY, event) {
+            if(!isCanvasReady || !annotationCanvas || !backgroundImageElement) return;
+
+            // 检测修饰键：Shift = 增加选区，Alt = 减少选区，无修饰键 = 替换选区
+            let mode = 'replace'; // 默认为替换模式（Photoshop行为）
+
+            // 优先使用事件对象检测，其次使用全局状态
+            const shiftPressed = event?.shiftKey || globalShiftPressed;
+            const altPressed = event?.altKey || globalAltPressed;
+
+            // 调试：输出事件信息
+            console.log('魔棒事件对象:', {
+                hasEvent: !!event,
+                eventShiftKey: event?.shiftKey,
+                eventAltKey: event?.altKey,
+                globalShiftPressed: globalShiftPressed,
+                globalAltPressed: globalAltPressed,
+                finalShiftPressed: shiftPressed,
+                finalAltPressed: altPressed,
+                type: event?.type
+            });
+
+            if(shiftPressed) {
+                mode = 'add'; // 增加模式
+                console.log('检测到 Shift 键，切换到增加模式');
+            } else if(altPressed) {
+                mode = 'subtract'; // 减少模式
+                console.log('检测到 Alt 键，切换到减少模式');
+            }
+
+            annotationState.wandMode = mode;
+            updateWandStatus();
+
+            // 获取原始背景图片元素
+            const imgElement = backgroundImageElement.getElement();
+            if(!imgElement) return;
+
+            // 获取图片的实际显示尺寸和位置
+            const displayWidth = backgroundImageElement.width * backgroundImageElement.scaleX;
+            const displayHeight = backgroundImageElement.height * backgroundImageElement.scaleY;
+            const offsetX = backgroundImageElement.left;
+            const offsetY = backgroundImageElement.top;
+
+            console.log('魔棒点击:', { startX, startY, offsetX, offsetY, displayWidth, displayHeight });
+
+            // 计算点击位置在图片上的相对坐标
+            const relX = startX - offsetX;
+            const relY = startY - offsetY;
+
+            // 边界检查
+            if(relX < 0 || relX >= displayWidth || relY < 0 || relY >= displayHeight) {
+                document.getElementById('annotationStatus').innerText = `工具: 魔棒（点击位置超出图片范围: ${Math.floor(relX)}, ${Math.floor(relY)}）`;
+                return;
+            }
+
+            // 将相对坐标转换为原始图片坐标
+            const originalWidth = imgElement.width;
+            const originalHeight = imgElement.height;
+            const imgX = Math.floor((relX / displayWidth) * originalWidth);
+            const imgY = Math.floor((relY / displayHeight) * originalHeight);
+
+            console.log('转换后的图片坐标:', { imgX, imgY, originalWidth, originalHeight });
+
+            // 创建临时 Canvas 来获取原始图片的像素数据
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = originalWidth;
+            tempCanvas.height = originalHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // 绘制原始图片
+            tempCtx.drawImage(imgElement, 0, 0);
+
+            // 获取像素数据
+            const imageData = tempCtx.getImageData(0, 0, originalWidth, originalHeight);
+            const pixels = imageData.data;
+
+            // 边界检查（使用原始尺寸）
+            if(imgX < 0 || imgX >= originalWidth || imgY < 0 || imgY >= originalHeight) {
+                document.getElementById('annotationStatus').innerText = '工具: 魔棒（坐标转换错误）';
+                return;
+            }
+
+            // 获取起始点颜色
+            const startIdx = (imgY * originalWidth + imgX) * 4;
+            const startR = pixels[startIdx];
+            const startG = pixels[startIdx + 1];
+            const startB = pixels[startIdx + 2];
+            const startA = pixels[startIdx + 3];
+
+            if(startA === 0) {
+                document.getElementById('annotationStatus').innerText = '工具: 魔棒（点击了透明区域）';
+                return;
+            }
+
+            // 使用 Lab 色彩空间计算颜色差异（更接近人眼感知）
+            const startLab = rgbToLab(startR, startG, startB);
+            // Lab Delta E 容差范围约为 0-100，直接使用容差值
+            const tolerance = annotationState.tolerance;
+
+            let selectedPixels = [];
+
+            if(annotationState.wandContiguous) {
+                // ========== 连续模式：泛洪填充算法 ==========
+                const visited = new Uint8Array(originalWidth * originalHeight);
+                const stack = [[imgX, imgY]];
+
+                while(stack.length > 0) {
+                    const [x, y] = stack.pop();
+                    const idx = y * originalWidth + x;
+
+                    if(visited[idx]) continue;
+                    visited[idx] = 1;
+
+                    const pixelIdx = idx * 4;
+                    const r = pixels[pixelIdx];
+                    const g = pixels[pixelIdx + 1];
+                    const b = pixels[pixelIdx + 2];
+                    const a = pixels[pixelIdx + 3];
+
+                    // 使用 Lab 色彩空间计算颜色差异
+                    const currentLab = rgbToLab(r, g, b);
+                    const diff = labDeltaE(startLab, currentLab);
+
+                    if(diff <= tolerance && a > 0) {
+                        // 将原始图片坐标转换回 Canvas 坐标
+                        selectedPixels.push({
+                            x: offsetX + (x / originalWidth) * displayWidth,
+                            y: offsetY + (y / originalHeight) * displayHeight
+                        });
+
+                        // 添加相邻像素
+                        if(x > 0) stack.push([x - 1, y]);
+                        if(x < originalWidth - 1) stack.push([x + 1, y]);
+                        if(y > 0) stack.push([x, y - 1]);
+                        if(y < originalHeight - 1) stack.push([x, y + 1]);
+                    }
+                }
+            } else {
+                // ========== 非连续模式：全图扫描（类似Photoshop）==========
+                // 扫描整张图片，选择所有颜色相似的像素
+                for(let y = 0; y < originalHeight; y++) {
+                    for(let x = 0; x < originalWidth; x++) {
+                        const idx = (y * originalWidth + x) * 4;
+                        const r = pixels[idx];
+                        const g = pixels[idx + 1];
+                        const b = pixels[idx + 2];
+                        const a = pixels[idx + 3];
+
+                        // 使用 Lab 色彩空间计算颜色差异
+                        const currentLab = rgbToLab(r, g, b);
+                        const diff = labDeltaE(startLab, currentLab);
+
+                        if(diff <= tolerance && a > 0) {
+                            // 将原始图片坐标转换回 Canvas 坐标
+                            selectedPixels.push({
+                                x: offsetX + (x / originalWidth) * displayWidth,
+                                y: offsetY + (y / originalHeight) * displayHeight
+                            });
+                        }
+                    }
+                }
+            }
+
+            console.log('魔棒选择了', selectedPixels.length, '个像素');
+
+            if(selectedPixels.length === 0) {
+                document.getElementById('annotationStatus').innerText = '工具: 魔棒（未找到匹配像素）';
+                return;
+            }
+
+            // 根据模式进行像素级别的布尔运算
+            const newPixelMap = new Map();
+            selectedPixels.forEach(p => {
+                const key = `${Math.floor(p.x)},${Math.floor(p.y)}`;
+                newPixelMap.set(key, { x: Math.floor(p.x), y: Math.floor(p.y) });
+            });
+
+            if(mode === 'replace') {
+                // 替换模式：清空并替换 selectionPixels
+                console.log('替换模式 - 清空旧选区，添加新选区');
+                annotationState.selectionPixels.clear();
+                newPixelMap.forEach((value, key) => {
+                    annotationState.selectionPixels.set(key, value);
+                });
+            } else if(mode === 'add') {
+                // 增加模式：合并到 selectionPixels（并集）
+                console.log('增加模式 - 合并选区');
+                console.log('合并前 selectionPixels 大小:', annotationState.selectionPixels.size);
+                console.log('新选区 newPixelMap 大小:', newPixelMap.size);
+                newPixelMap.forEach((value, key) => {
+                    annotationState.selectionPixels.set(key, value);
+                });
+                console.log('合并后 selectionPixels 大小:', annotationState.selectionPixels.size);
+            } else if(mode === 'subtract') {
+                // 减少模式：从 selectionPixels 中移除（差集）
+                console.log('减少模式 - 从选区中移除');
+                newPixelMap.forEach((value, key) => {
+                    annotationState.selectionPixels.delete(key);
+                });
+            }
+
+            // 创建选择区域多边形
+            createWandSelection();
+        }
+
+        function createWandSelection() {
+            const pixelCount = annotationState.selectionPixels.size;
+
+            if(pixelCount === 0) {
+                // 清除所有选区多边形
+                const objects = annotationCanvas.getObjects();
+                objects.forEach(obj => {
+                    if(obj.type === 'polygon') {
+                        annotationCanvas.remove(obj);
+                    }
+                });
+                annotationCanvas.renderAll();
+                document.getElementById('annotationStatus').innerText = '工具: 魔棒（无选区）';
+                return;
+            }
+
+            // 将像素集合转换为数组
+            const pixelsArray = Array.from(annotationState.selectionPixels.values());
+
+            // 简化点集为多边形
+            const simplifiedPoints = simplifyPixelsToPolygon(pixelsArray);
+
+            // 移除所有现有的多边形选区
+            const objects = annotationCanvas.getObjects();
+            objects.forEach(obj => {
+                if(obj.type === 'polygon') {
+                    annotationCanvas.remove(obj);
+                }
+            });
+
+            // 创建新的合并选区多边形
+            const polygon = new fabric.Polygon(simplifiedPoints, {
+                fill: annotationState.brushColor + '80',
+                stroke: null,
+                strokeWidth: 0,
+                selectable: false,
+                evented: false
+            });
+            annotationCanvas.add(polygon);
+            annotationCanvas.sendToBack(polygon); // 将选区放在底层
+
+            annotationCanvas.renderAll();
+            saveAnnotationState();
+
+            const modeText = annotationState.wandMode === 'add' ? '增加' : (annotationState.wandMode === 'subtract' ? '减少' : '替换');
+            document.getElementById('annotationStatus').innerText = `工具: 魔棒（${modeText}选区，${pixelCount} 个像素）`;
+        }
+
+        // 将像素点简化为多边形（使用边界追踪算法，类似Photoshop）
+        function simplifyPixelsToPolygon(pixels) {
+            if(pixels.length <= 3) return pixels;
+
+            // 1. 创建像素网格（用于快速查找）
+            const gridSize = 1; // 使用更小的网格以获得最高精度
+            const grid = new Map();
+
+            pixels.forEach(p => {
+                const gridX = Math.floor(p.x);
+                const gridY = Math.floor(p.y);
+                const key = `${gridX},${gridY}`;
+                // 只保留每个网格的一个点（避免重复）
+                if (!grid.has(key)) {
+                    grid.set(key, { x: gridX, y: gridY });
+                }
+            });
+
+            if(grid.size <= 3) return Array.from(grid.values());
+
+            // 2. 使用边界追踪算法获取精确边界
+            const boundaryPoints = traceBoundary(grid);
+
+            // 3. 简化边界点（Douglas-Peucker算法）
+            // 使用更小的容差值以保留更多细节
+            return simplifyBoundary(boundaryPoints, 1); // tolerance=1px（更精确）
+        }
+
+        // Moore-Neighbor 边界追踪算法
+        function traceBoundary(pixelGrid) {
+            const pixels = Array.from(pixelGrid.values());
+            if(pixels.length === 0) return [];
+
+            // 1. 找到起始点（最左上角的像素）
+            let startPixel = pixels[0];
+            let minX = startPixel.x, minY = startPixel.y;
+
+            pixels.forEach(p => {
+                if(p.y < minY || (p.y === minY && p.x < minX)) {
+                    minX = p.x;
+                    minY = p.y;
+                    startPixel = p;
+                }
+            });
+
+            // 2. Moore-Neighbor 追踪
+            const boundary = [startPixel];
+            const visited = new Set();
+            visited.add(`${startPixel.x},${startPixel.y}`);
+
+            // 8个方向（顺时针：从右侧开始）
+            const directions = [
+                { dx: 1, dy: 0 },   // 右
+                { dx: 1, dy: 1 },   // 右下
+                { dx: 0, dy: 1 },   // 下
+                { dx: -1, dy: 1 },  // 左下
+                { dx: -1, dy: 0 },  // 左
+                { dx: -1, dy: -1 }, // 左上
+                { dx: 0, dy: -1 },  // 上
+                { dx: 1, dy: -1 }   // 右上
+            ];
+
+            let current = startPixel;
+            let prevDir = 0; // 上一次移动的方向
+            let maxIterations = pixels.length * 8; // 防止无限循环（增加迭代次数）
+            let iterations = 0;
+
+            while(iterations < maxIterations) {
+                iterations++;
+
+                // 从当前方向的反方向开始搜索（顺时针）
+                let startDir = (prevDir + 6) % 8; // 从反方向开始
+                let found = false;
+                let newDir = -1;
+
+                for(let i = 0; i < 8; i++) {
+                    const dirIdx = (startDir + i) % 8;
+                    const dir = directions[dirIdx];
+                    const nx = current.x + dir.dx; // 使用1倍网格步长（更精确）
+                    const ny = current.y + dir.dy;
+                    const key = `${nx},${ny}`;
+
+                    if(pixelGrid.has(key)) {
+                        const next = { x: nx, y: ny };
+                        const nextKey = `${next.x},${next.y}`;
+
+                        // 检查是否回到起点（且已经形成闭合边界）
+                        if(next.x === startPixel.x && next.y === startPixel.y && boundary.length > 2) {
+                            return boundary;
+                        }
+
+                        // 检查是否已访问
+                        if(!visited.has(nextKey)) {
+                            boundary.push(next);
+                            visited.add(nextKey);
+                            current = next;
+                            newDir = dirIdx;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+
+                if(!found) {
+                    // 没有找到未访问的相邻像素，结束追踪
+                    break;
+                }
+
+                prevDir = newDir;
+            }
+
+            return boundary;
+        }
+
+        // Douglas-Peucker 边界简化算法
+        function simplifyBoundary(points, tolerance) {
+            if(points.length <= 3) return points;
+
+            // 找到距离起点和终点连线最远的点
+            let maxDist = 0;
+            let maxIdx = -1;
+            const start = points[0];
+            const end = points[points.length - 1];
+
+            for(let i = 1; i < points.length - 1; i++) {
+                const dist = pointToLineDistance(points[i], start, end);
+                if(dist > maxDist) {
+                    maxDist = dist;
+                    maxIdx = i;
+                }
+            }
+
+            // 如果最大距离大于容差，递归简化
+            if(maxDist > tolerance && maxIdx >= 0) {
+                const left = simplifyBoundary(points.slice(0, maxIdx + 1), tolerance);
+                const right = simplifyBoundary(points.slice(maxIdx), tolerance);
+                return [...left.slice(0, -1), ...right];
+            } else {
+                // 距离小于容差，只保留起点和终点
+                return [start, end];
+            }
+        }
+
+        // 计算点到线段的垂直距离
+        function pointToLineDistance(point, lineStart, lineEnd) {
+            const A = point.x - lineStart.x;
+            const B = point.y - lineStart.y;
+            const C = lineEnd.x - lineStart.x;
+            const D = lineEnd.y - lineStart.y;
+
+            const dot = A * C + B * D;
+            const lenSq = C * C + D * D;
+
+            let param = -1;
+            if(lenSq !== 0) {
+                param = dot / lenSq;
+            }
+
+            let xx, yy;
+
+            if(param < 0) {
+                xx = lineStart.x;
+                yy = lineStart.y;
+            } else if(param > 1) {
+                xx = lineEnd.x;
+                yy = lineEnd.y;
+            } else {
+                xx = lineStart.x + param * C;
+                yy = lineStart.y + param * D;
+            }
+
+            const dx = point.x - xx;
+            const dy = point.y - yy;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // 计算凸包（Graham 扫描算法）- 保留作为备用
+        function getConvexHull(points) {
+            if(points.length <= 3) return points;
+
+            // 找到最底部的点（y最大，如果有多个则取x最小）
+            const start = points.reduce((a, b) =>
+                a.y > b.y || (a.y === b.y && a.x < b.x) ? a : b
+            );
+
+            // 按极角排序
+            const sorted = points.filter(p => p !== start).sort((a, b) => {
+                const angleA = Math.atan2(a.y - start.y, a.x - start.x);
+                const angleB = Math.atan2(b.y - start.y, b.x - start.x);
+                return angleA - angleB;
+            });
+
+            // Graham 扫描
+            const hull = [start];
+
+            function crossProduct(o, a, b) {
+                return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+            }
+
+            for(const point of sorted) {
+                while(hull.length > 1 && crossProduct(hull[hull.length - 2], hull[hull.length - 1], point) <= 0) {
+                    hull.pop();
+                }
+                hull.push(point);
+            }
+
+            return hull;
+        }
+
+        // 文字工具
+        function setupTextTool() {
+            if(!isCanvasReady) return;
+
+            currentTool = 'text';
+            document.getElementById('annotationStatus').innerText = '工具: 文字（点击画布添加文字）';
+        }
+
+        function handleTextClick(pointer) {
+            if(!isCanvasReady || !annotationCanvas) return;
+
+            const text = new fabric.IText('点击编辑', {
+                left: pointer.x,
+                top: pointer.y,
+                fontFamily: 'Arial',
+                fill: annotationState.brushColor,
+                fontSize: parseInt(annotationState.brushSize) + 12
+            });
+            annotationCanvas.add(text);
+            annotationCanvas.setActiveObject(text);
+            text.enterEditing();
+            text.selectAll();
+        }
+
+        // 撤销/恢复
+        function undoAnnotation() {
+            if(annotationState.undoStack.length <= 1) {
+                console.log('没有更多可撤销的操作');
+                return;
+            }
+
+            console.log('执行撤销，当前栈深度:', annotationState.undoStack.length);
+
+            // 弹出当前状态保存到 redoStack
+            const currentState = annotationState.undoStack.pop();
+            annotationState.redoStack.push(currentState);
+
+            // 获取上一个状态
+            const prevState = annotationState.undoStack[annotationState.undoStack.length - 1];
+
+            // 加载上一个状态
+            annotationCanvas.loadFromJSON(prevState, function() {
+                // 恢复背景图片
+                if(annotationState.currentImageSrc && backgroundImageElement) {
+                    annotationCanvas.setBackgroundImage(backgroundImageElement, function() {
+                        annotationCanvas.renderAll();
+                        console.log('撤销完成，栈深度:', annotationState.undoStack.length);
+                    });
+                } else {
+                    annotationCanvas.renderAll();
+                    console.log('撤销完成，栈深度:', annotationState.undoStack.length);
+                }
+            });
+        }
+
+        function redoAnnotation() {
+            if(annotationState.redoStack.length === 0) {
+                console.log('没有更多可恢复的操作');
+                return;
+            }
+
+            console.log('执行恢复，当前 redo 栈深度:', annotationState.redoStack.length);
+
+            // 获取要恢复的状态
+            const nextState = annotationState.redoStack.pop();
+            annotationState.undoStack.push(nextState);
+
+            // 加载状态
+            annotationCanvas.loadFromJSON(nextState, function() {
+                // 恢复背景图片
+                if(annotationState.currentImageSrc && backgroundImageElement) {
+                    annotationCanvas.setBackgroundImage(backgroundImageElement, function() {
+                        annotationCanvas.renderAll();
+                        console.log('恢复完成，redo 栈深度:', annotationState.redoStack.length);
+                    });
+                } else {
+                    annotationCanvas.renderAll();
+                    console.log('恢复完成，redo 栈深度:', annotationState.redoStack.length);
+                }
+            });
+        }
+
+        // 清空画布
+        function clearAnnotation() {
+            if(!annotationCanvas) return;
+
+            // 移除所有对象
+            annotationCanvas.clear();
+            annotationCanvas.setBackgroundColor('#fff');
+
+            // 重新加载背景图
+            if(annotationState.currentImageSrc) {
+                // 暂时设置为未就绪，等待图片加载完成
+                isCanvasReady = false;
+                document.getElementById('annotationStatus').innerText = '正在重新加载图片...';
+
+                fabric.Image.fromURL(annotationState.currentImageSrc, function(img) {
+                    const scale = Math.min(
+                        800 / img.width,
+                        600 / img.height
+                    );
+                    img.set({
+                        scaleX: scale,
+                        scaleY: scale,
+                        selectable: false,
+                        evented: false
+                    });
+                    annotationCanvas.setBackgroundImage(img, function() {
+                        annotationCanvas.renderAll();
+                        isCanvasReady = true;
+                        document.getElementById('annotationStatus').innerText = '工具: 画笔 - 就绪';
+                        setupBrushTool();
+                    });
+                    document.getElementById('canvasPlaceholder').style.display = 'none';
+                });
+            } else {
+                document.getElementById('canvasPlaceholder').style.display = 'block';
+            }
+
+            // 重置工具状态
+            annotationState.polygonPoints = [];
+            polygonLines = [];
+            if(tempLine) {
+                tempLine = null;
+            }
+        }
+
+        // 导出标注图
+        function exportAnnotatedImage() {
+            if(!annotationState.currentImageSrc || !annotationState.imageLoaded || !isCanvasReady) {
+                alert('请先选择要标注的图片，并等待图片加载完成');
+                return;
+            }
+
+            console.log('开始导出标注图...');
+
+            // 隐藏选中框
+            annotationCanvas.discardActiveObject();
+            annotationCanvas.renderAll();
+
+            // 获取原始图片元素和尺寸
+            const imgElement = backgroundImageElement.getElement();
+            const originalWidth = imgElement.width;
+            const originalHeight = imgElement.height;
+
+            console.log('原图尺寸:', originalWidth, 'x', originalHeight);
+            console.log('Canvas上的对象数量:', annotationCanvas.getObjects().length);
+
+            // 创建一个临时的 Fabric Canvas，使用原始图片尺寸
+            const exportCanvas = new fabric.Canvas(null, {
+                width: originalWidth,
+                height: originalHeight
+            });
+
+            // 添加背景图片
+            fabric.Image.fromObject(backgroundImageElement, function(bgImg) {
+                bgImg.set({
+                    scaleX: 1,
+                    scaleY: 1,
+                    left: 0,
+                    top: 0
+                });
+                exportCanvas.setBackgroundImage(bgImg, function() {
+                    // 获取当前 Canvas 的缩放比例和偏移
+                    const scale = backgroundImageElement.scaleX;
+                    const offsetX = backgroundImageElement.left;
+                    const offsetY = backgroundImageElement.top;
+
+                    console.log('缩放比例:', scale, '偏移:', offsetX, offsetY);
+
+                    // 复制所有标注对象并调整坐标
+                    const objects = annotationCanvas.getObjects();
+                    objects.forEach(obj => {
+                        // 克隆对象
+                        obj.clone(function(clonedObj) {
+                            // 计算在原图上的位置和缩放
+                            const originalX = (obj.left - offsetX) / scale;
+                            const originalY = (obj.top - offsetY) / scale;
+                            const originalScaleX = obj.scaleX / scale;
+                            const originalScaleY = obj.scaleY / scale;
+
+                            clonedObj.set({
+                                left: originalX,
+                                top: originalY,
+                                scaleX: originalScaleX,
+                                scaleY: originalScaleY
+                            });
+
+                            exportCanvas.add(clonedObj);
+                        });
+                    });
+
+                    // 渲染并导出
+                    exportCanvas.renderAll();
+                    const dataURL = exportCanvas.toDataURL({
+                        format: 'png',
+                        quality: 1
+                    });
+
+                    console.log('导出完成，数据长度:', dataURL.length);
+
+                    // 保存到平台状态
+                    platformState.currentAnnotatedImage = dataURL;
+
+                    // 将标注后的图片添加到参考图列表
+                    const id = 'annotated-' + Date.now();
+                    const tray = document.getElementById('imageTray');
+                    tray.classList.remove('hidden');
+
+                    const div = document.createElement('div');
+                    div.id = `up-${id}`;
+                    div.className = "relative group w-14 h-14 rounded-xl overflow-hidden border-2 border-green-200 shrink-0 shadow-sm transition-all hover:scale-105 cursor-pointer";
+                    div.innerHTML = `
+                        <img src="${dataURL}" class="w-full h-full object-cover" data-annotation-img="${id}">
+                        <div class="absolute bottom-0 left-0 right-0 bg-green-500/80 text-white text-[7px] text-center py-0.5">已标注</div>
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex items-center justify-center gap-1">
+                            <button class="preview-btn text-white text-[8px] bg-blue-500/80 rounded px-1.5 py-0.5 hover:bg-blue-500 transition" title="预览" data-img-id="${id}">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button class="annotate-btn text-white text-[8px] bg-black/50 rounded px-1.5 py-0.5 hover:bg-black/80 transition" title="继续标注" data-img-id="${id}">
+                                <i class="fas fa-pencil-alt"></i>
+                            </button>
+                            <button class="delete-btn text-white text-[8px] bg-red-500/80 rounded px-1.5 py-0.5 hover:bg-red-500 transition" title="删除" data-img-id="${id}">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    `;
+                    tray.appendChild(div);
+
+                    // 同时添加到 currentRefImgs（带标注标记）
+                    platformState.currentRefImgs.push({id, b64: dataURL, isAnnotated: true});
+
+                    // 绑定事件
+                    const img = div.querySelector('img');
+                    img.addEventListener('click', () => openModal(dataURL, '标注图预览', '', [dataURL]));
+
+                    const previewBtn = div.querySelector('.preview-btn');
+                    previewBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openModal(dataURL, '标注图预览', '', [dataURL]);
+                    });
+
+                    const annotateBtn = div.querySelector('.annotate-btn');
+                    annotateBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openAnnotationModal(dataURL);
+                    });
+
+                    const deleteBtn = div.querySelector('.delete-btn');
+                    deleteBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        div.remove();
+                        platformState.currentRefImgs = platformState.currentRefImgs.filter(i => i.id !== id);
+                        if(platformState.currentRefImgs.length === 0) tray.classList.add('hidden');
+                    });
+
+                    // 清理临时 Canvas
+                    exportCanvas.dispose();
+
+                    // 更新 UI 显示
+                    closeAnnotationModal();
+                    document.getElementById('annotationStatus').innerText = '标注图已添加到参考图列表';
+                });
+            });
+        }
+
+        // 画笔颜色/大小/容差变化
+        document.addEventListener('DOMContentLoaded', function() {
+            const colorInput = document.getElementById('brushColor');
+            const sizeInput = document.getElementById('brushSize');
+            const sizeValue = document.getElementById('brushSizeValue');
+            const toleranceInput = document.getElementById('toleranceSlider');
+            const toleranceValue = document.getElementById('toleranceValue');
+
+            if(colorInput) {
+                colorInput.addEventListener('input', function() {
+                    annotationState.brushColor = this.value;
+                    updateBrushSettings();
+                });
+            }
+
+            // 大小滑块和输入框同步
+            if(sizeInput && sizeValue) {
+                sizeInput.addEventListener('input', function() {
+                    const val = parseInt(this.value);
+                    annotationState.brushSize = val;
+                    sizeValue.value = val;
+                    updateBrushSettings();
+                });
+
+                sizeValue.addEventListener('input', function() {
+                    let val = parseInt(this.value);
+                    if(isNaN(val)) val = 1;
+                    if(val < 1) val = 1;
+                    if(val > 100) val = 100;
+                    annotationState.brushSize = val;
+                    sizeInput.value = val;
+                    updateBrushSettings();
+                });
+
+                sizeValue.addEventListener('change', function() {
+                    let val = parseInt(this.value);
+                    if(isNaN(val)) val = 20;
+                    if(val < 1) val = 1;
+                    if(val > 100) val = 100;
+                    this.value = val;
+                    annotationState.brushSize = val;
+                    sizeInput.value = val;
+                    updateBrushSettings();
+                });
+            }
+
+            // 容差滑块和输入框同步
+            if(toleranceInput && toleranceValue) {
+                toleranceInput.addEventListener('input', function() {
+                    const val = parseInt(this.value);
+                    annotationState.tolerance = val;
+                    toleranceValue.value = val;
+                });
+
+                toleranceValue.addEventListener('input', function() {
+                    let val = parseInt(this.value);
+                    if(isNaN(val)) val = 0;
+                    if(val < 0) val = 0;
+                    if(val > 100) val = 100;
+                    annotationState.tolerance = val;
+                    toleranceInput.value = val;
+                });
+
+                toleranceValue.addEventListener('change', function() {
+                    let val = parseInt(this.value);
+                    if(isNaN(val)) val = 30;
+                    if(val < 0) val = 0;
+                    if(val > 100) val = 100;
+                    this.value = val;
+                    annotationState.tolerance = val;
+                    toleranceInput.value = val;
+                });
+            }
+        });
+
+        function handleLogout() { location.reload(); }
+        document.addEventListener('mousemove', e => { document.querySelectorAll('.spotlight-btn').forEach(btn => { const rect = btn.getBoundingClientRect(); btn.style.setProperty('--x', `${e.clientX - rect.left}px`); btn.style.setProperty('--y', `${e.clientY - rect.top}px`); }); });
+        document.addEventListener('paste', e => { const items = (e.clipboardData || e.originalEvent.clipboardData).items; for (let item of items) { if (item.kind === 'file') captureAssets([item.getAsFile()]); } });
+    </script>
+</body>
+</html>

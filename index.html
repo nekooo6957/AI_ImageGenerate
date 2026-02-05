@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UAL AI-Powered Design Platform | 规划建筑景观 AI 创作平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --black: #0a0a0a;
+            --white: #fafafa;
+            --accent: #c9a962;
+            --gray-100: #f5f5f5;
+            --gray-200: #e5e5e5;
+            --gray-400: #a3a3a3;
+            --gray-600: #525252;
+            --gray-800: #262626;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--white);
+            color: var(--black);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .font-display {
+            font-family: 'Playfair Display', Georgia, serif;
+        }
+
+        /* Custom cursor */
+        .cursor-dot {
+            width: 5px;
+            height: 5px;
+            background: var(--black);
+            border-radius: 50%;
+            position: fixed;
+            pointer-events: none;
+            z-index: 9999;
+            transition: transform 0.08s ease-out;
+            will-change: transform;
+        }
+
+        .cursor-outline {
+            width: 28px;
+            height: 28px;
+            border: 1px solid var(--black);
+            border-radius: 50%;
+            position: fixed;
+            pointer-events: none;
+            z-index: 9998;
+            transition: transform 0.15s ease-out, width 0.2s, height 0.2s;
+            will-change: transform;
+        }
+
+        /* Noise texture overlay */
+        .noise-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.015;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+
+        /* Smooth text reveal animation */
+        .reveal-text {
+            overflow: hidden;
+        }
+
+        .reveal-text span {
+            display: inline-block;
+            transform: translateY(100%);
+            animation: revealText 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes revealText {
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        /* Fade in up animation */
+        .fade-up {
+            opacity: 0;
+            transform: translateY(40px);
+            animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes fadeUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Staggered children */
+        .stagger-children > * {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+
+        .stagger-children > *:nth-child(1) { animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards; }
+        .stagger-children > *:nth-child(2) { animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards; }
+        .stagger-children > *:nth-child(3) { animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards; }
+        .stagger-children > *:nth-child(4) { animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards; }
+        .stagger-children > *:nth-child(5) { animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards; }
+        .stagger-children > *:nth-child(6) { animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.6s forwards; }
+
+        /* Button hover effect */
+        .btn-primary {
+            position: relative;
+            background: var(--black);
+            color: var(--white);
+            overflow: hidden;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--accent);
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 0;
+        }
+
+        .btn-primary:hover::before {
+            transform: translateY(0);
+        }
+
+        .btn-primary span {
+            position: relative;
+            z-index: 1;
+        }
+
+        .btn-secondary {
+            position: relative;
+            border: 1px solid var(--black);
+            background: transparent;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .btn-secondary:hover {
+            background: var(--black);
+            color: var(--white);
+        }
+
+        /* Card hover effect */
+        .feature-card {
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                        box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-card .icon-wrapper {
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                        background 0.3s ease;
+        }
+
+        .feature-card:hover .icon-wrapper {
+            transform: scale(1.1);
+            background: var(--accent);
+        }
+
+        .feature-card:hover .icon-wrapper i {
+            color: var(--white);
+        }
+
+        /* Scroll indicator */
+        .scroll-indicator {
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {
+                transform: translateY(0);
+            }
+            40% {
+                transform: translateY(10px);
+            }
+            60% {
+                transform: translateY(5px);
+            }
+        }
+
+        /* Section transitions */
+        .section-reveal {
+            opacity: 0;
+            transform: translateY(60px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .section-reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Marquee animation */
+        .marquee {
+            animation: marquee 30s linear infinite;
+        }
+
+        @keyframes marquee {
+            0% {
+                transform: translateX(0);
+            }
+            100% {
+                transform: translateX(-50%);
+            }
+        }
+
+        /* Image hover effect */
+        .img-hover {
+            overflow: hidden;
+        }
+
+        .img-hover img {
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .img-hover:hover img {
+            transform: scale(1.05);
+        }
+
+        /* Gradient text */
+        .gradient-text {
+            background: linear-gradient(135deg, var(--black) 0%, var(--gray-600) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Accent line */
+        .accent-line {
+            width: 60px;
+            height: 2px;
+            background: var(--accent);
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--gray-100);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--gray-400);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--gray-600);
+        }
+
+        /* Navigation */
+        .nav-link {
+            position: relative;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 1px;
+            background: var(--black);
+            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        /* Scenario cards */
+        .scenario-card {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .scenario-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%);
+            z-index: 1;
+        }
+
+        .scenario-card .content {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Stats counter animation */
+        .stat-number {
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Floating shapes */
+        .floating-shape {
+            position: absolute;
+            border: 1px solid var(--gray-200);
+            border-radius: 50%;
+            animation: float 20s infinite ease-in-out;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translate(0, 0) rotate(0deg);
+            }
+            25% {
+                transform: translate(20px, -20px) rotate(90deg);
+            }
+            50% {
+                transform: translate(-10px, 20px) rotate(180deg);
+            }
+            75% {
+                transform: translate(-20px, -10px) rotate(270deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Noise overlay -->
+    <div class="noise-overlay"></div>
+
+    <!-- Custom cursor (desktop only) -->
+    <div class="cursor-dot hidden lg:block"></div>
+    <div class="cursor-outline hidden lg:block"></div>
+
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-gray-100">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="flex items-center justify-between h-20">
+                <!-- Logo -->
+                <a href="#" class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-black rounded-lg flex items-center justify-center">
+                        <i class="fas fa-city text-white text-sm"></i>
+                    </div>
+                    <span class="font-display text-xl font-semibold">UAL AI-Powered Design Platform</span>
+                </a>
+
+                <!-- Desktop Navigation -->
+                <div class="hidden md:flex items-center gap-10">
+                    <a href="./inspiration_community.html" class="nav-link text-sm text-gray-600 hover:text-black transition-colors">灵感社区</a>
+                    <a href="#features" class="nav-link text-sm text-gray-600 hover:text-black transition-colors">核心功能</a>
+                    <a href="#scenarios" class="nav-link text-sm text-gray-600 hover:text-black transition-colors">应用场景</a>
+                    <a href="#tech" class="nav-link text-sm text-gray-600 hover:text-black transition-colors">技术优势</a>
+                </div>
+
+                <!-- CTA Button -->
+                <div class="flex items-center gap-4">
+                    <a href="./nanobananapro生图平台.html" class="btn-primary px-6 py-3 rounded-full text-sm font-medium">
+                        <span class="flex items-center gap-2">
+                            开始创作
+                            <i class="fas fa-arrow-right text-xs"></i>
+                        </span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
+        <!-- Floating shapes -->
+        <div class="floating-shape w-96 h-96 -top-48 -right-48 opacity-20"></div>
+        <div class="floating-shape w-64 h-64 bottom-20 -left-32 opacity-30" style="animation-delay: -5s;"></div>
+        <div class="floating-shape w-48 h-48 top-1/3 right-1/4 opacity-10" style="animation-delay: -10s;"></div>
+
+        <div class="max-w-7xl mx-auto px-6 lg:px-8 py-20 relative z-10">
+            <div class="max-w-4xl mx-auto text-center">
+                <!-- Badge -->
+                <div class="fade-up inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 bg-white mb-8">
+                    <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                    <span class="text-xs text-gray-600">专为建筑、规划、景观设计师打造</span>
+                </div>
+
+                <!-- Headline -->
+                <h1 class="fade-up font-display text-5xl sm:text-6xl lg:text-7xl font-semibold leading-tight mb-8" style="animation-delay: 0.1s;">
+                    用 AI 重新定义<br>
+                    <span class="text-gray-400">空间设计创作</span>
+                </h1>
+
+                <!-- Subtitle -->
+                <p class="fade-up text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto mb-12" style="animation-delay: 0.2s;">
+                    专业的 AI 图像生成平台，让城市规划师、建筑设计师和景观设计师
+                    <br class="hidden sm:block">能够快速将创意转化为令人惊叹的视觉效果
+                </p>
+
+                <!-- CTA Buttons -->
+                <div class="fade-up flex flex-col sm:flex-row items-center justify-center gap-4" style="animation-delay: 0.3s;">
+                    <a href="./nanobananapro生图平台.html" class="btn-primary px-8 py-4 rounded-full text-base font-medium w-full sm:w-auto">
+                        <span class="flex items-center justify-center gap-2">
+                            开始使用
+                            <i class="fas fa-arrow-right text-sm"></i>
+                        </span>
+                    </a>
+                    <a href="#features" class="btn-secondary px-8 py-4 rounded-full text-base font-medium w-full sm:w-auto">
+                        了解更多
+                    </a>
+                </div>
+
+                <!-- Scroll indicator -->
+                <div class="fade-up scroll-indicator mt-20" style="animation-delay: 0.5s;">
+                    <div class="flex flex-col items-center gap-2 text-gray-400">
+                        <span class="text-xs uppercase tracking-widest">向下滚动</span>
+                        <i class="fas fa-chevron-down text-sm"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Logo Marquee -->
+    <section class="py-16 border-y border-gray-100 bg-gray-50/50">
+        <div class="overflow-hidden">
+            <div class="marquee flex items-center gap-16 whitespace-nowrap">
+                <span class="text-gray-300 text-2xl font-display">城市规划</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">建筑设计</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">景观设计</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">城市更新</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">概念场景</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">城市规划</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">建筑设计</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">景观设计</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">城市更新</span>
+                <span class="text-gray-200">✦</span>
+                <span class="text-gray-300 text-2xl font-display">概念场景</span>
+                <span class="text-gray-200">✦</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Product Positioning -->
+    <section class="py-32" id="features">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="section-reveal max-w-3xl mb-20">
+                <div class="accent-line mb-8"></div>
+                <h2 class="font-display text-4xl sm:text-5xl font-semibold mb-6">
+                    为设计专业人士<br>打造的 AI 创作工具
+                </h2>
+                <p class="text-lg text-gray-600">
+                    我们深知设计师的需求与痛点。UAL AI-Powered Design Platform 将强大的 AI 技术与直观的工作流程结合，
+                    让您专注于创意本身，而非技术细节。
+                </p>
+            </div>
+
+            <!-- Features Grid -->
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Feature 1 -->
+                <div class="section-reveal feature-card bg-white rounded-2xl p-8 border border-gray-100">
+                    <div class="icon-wrapper w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mb-6">
+                        <i class="fas fa-wand-magic-sparkles text-xl text-gray-700"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-3">AI 智能生成</h3>
+                    <p class="text-gray-600 text-sm leading-relaxed">
+                        基于 Google 强大的 nano banana pro 生图模型，一键将你的设计创意快速转化令人惊叹的视觉效果
+                    </p>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="section-reveal feature-card bg-white rounded-2xl p-8 border border-gray-100" style="transition-delay: 0.1s;">
+                    <div class="icon-wrapper w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mb-6">
+                        <i class="fas fa-pen-ruler text-xl text-gray-700"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-3">局部重绘</h3>
+                    <p class="text-gray-600 text-sm leading-relaxed">
+                        画笔、套索、魔棒、文字多种标注工具，
+                        精准传达局部重绘的设计意图
+                    </p>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="section-reveal feature-card bg-white rounded-2xl p-8 border border-gray-100" style="transition-delay: 0.2s;">
+                    <div class="icon-wrapper w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mb-6">
+                        <i class="fas fa-layer-group text-xl text-gray-700"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-3">参考图引导</h3>
+                    <p class="text-gray-600 text-sm leading-relaxed">
+                        支持设计底图与风格参考图分离，
+                        精确控制生成方向和艺术风格
+                    </p>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="section-reveal feature-card bg-white rounded-2xl p-8 border border-gray-100" style="transition-delay: 0.3s;">
+                    <div class="icon-wrapper w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mb-6">
+                        <i class="fas fa-spell-check text-xl text-gray-700"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-3">提示词优化</h3>
+                    <p class="text-gray-600 text-sm leading-relaxed">
+                        内置行业专属提示词优化 AI 助手，
+                        自动优化您的提示词以获得最佳效果
+                    </p>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="section-reveal feature-card bg-white rounded-2xl p-8 border border-gray-100" style="transition-delay: 0.4s;">
+                    <div class="icon-wrapper w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mb-6">
+                        <i class="fas fa-folder-tree text-xl text-gray-700"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-3">项目管理</h3>
+                    <p class="text-gray-600 text-sm leading-relaxed">
+                        按项目组织您的创作，
+                        历史记录本地持久化存储
+                    </p>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="section-reveal feature-card bg-white rounded-2xl p-8 border border-gray-100" style="transition-delay: 0.5s;">
+                    <div class="icon-wrapper w-14 h-14 bg-gray-100 rounded-xl flex items-center justify-center mb-6">
+                        <i class="fas fa-expand text-xl text-gray-700"></i>
+                    </div>
+                    <h3 class="text-lg font-semibold mb-3">多种比例与画质选择</h3>
+                    <p class="text-gray-600 text-sm leading-relaxed">
+                        支持 1:1 到 21:9 等 10 种画面比例、1K/2K/4K 多种精度
+                        适配各种输出需求
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Scenarios Section -->
+    <section class="py-32 bg-gray-50" id="scenarios">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="section-reveal text-center max-w-3xl mx-auto mb-20">
+                <div class="accent-line mx-auto mb-8"></div>
+                <h2 class="font-display text-4xl sm:text-5xl font-semibold mb-6">
+                    多场景应用
+                </h2>
+                <p class="text-lg text-gray-600">
+                    涵盖行业空间设计全流程，从概念构思草图到场景效果表达
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Scenario 1 -->
+                <div class="section-reveal scenario-card rounded-2xl overflow-hidden h-80 img-hover">
+                    <img src="https://images.unsplash.com/photo-1486325212027-8081e485255e?w=600&h=800&fit=crop" alt="城市规划" class="w-full h-full object-cover">
+                    <div class="content absolute inset-0 flex flex-col justify-end p-6">
+                        <span class="text-white/80 text-xs uppercase tracking-widest mb-2">Urban Planning</span>
+                        <h3 class="text-white text-xl font-semibold">城市规划设计</h3>
+                    </div>
+                </div>
+
+                <!-- Scenario 2 -->
+                <div class="section-reveal scenario-card rounded-2xl overflow-hidden h-80 img-hover" style="transition-delay: 0.1s;">
+                    <img src="https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=600&h=800&fit=crop" alt="建筑设计" class="w-full h-full object-cover">
+                    <div class="content absolute inset-0 flex flex-col justify-end p-6">
+                        <span class="text-white/80 text-xs uppercase tracking-widest mb-2">Architecture</span>
+                        <h3 class="text-white text-xl font-semibold">建筑设计</h3>
+                    </div>
+                </div>
+
+                <!-- Scenario 3 -->
+                <div class="section-reveal scenario-card rounded-2xl overflow-hidden h-80 img-hover" style="transition-delay: 0.2s;">
+                    <img src="https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=800&fit=crop" alt="景观设计" class="w-full h-full object-cover">
+                    <div class="content absolute inset-0 flex flex-col justify-end p-6">
+                        <span class="text-white/80 text-xs uppercase tracking-widest mb-2">Landscape</span>
+                        <h3 class="text-white text-xl font-semibold">景观设计</h3>
+                    </div>
+                </div>
+
+                <!-- Scenario 4 -->
+                <div class="section-reveal scenario-card rounded-2xl overflow-hidden h-80 img-hover" style="transition-delay: 0.3s;">
+                    <img src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=600&h=800&fit=crop" alt="概念场景" class="w-full h-full object-cover">
+                    <div class="content absolute inset-0 flex flex-col justify-end p-6">
+                        <span class="text-white/80 text-xs uppercase tracking-widest mb-2">Conceptual</span>
+                        <h3 class="text-white text-xl font-semibold">概念场景图</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Section -->
+    <section class="py-32" id="tech">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="grid lg:grid-cols-2 gap-20 items-center">
+                <!-- Left: Content -->
+                <div class="section-reveal">
+                    <div class="accent-line mb-8"></div>
+                    <h2 class="font-display text-4xl sm:text-5xl font-semibold mb-6">
+                        强大的技术<br>
+                        <span class="text-gray-400">简洁的体验</span>
+                    </h2>
+                    <p class="text-lg text-gray-600 mb-12">
+                        我们将复杂的 AI 技术封装在简洁直观的界面之下，
+                        让您专注于设计创意本身。
+                    </p>
+
+                    <!-- Tech specs -->
+                    <div class="space-y-6">
+                        <div class="flex items-start gap-4">
+                            <div class="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-microchip text-gray-700"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-1">Google 原生 nano banana pro 模型</h4>
+                                <p class="text-sm text-gray-600">最新一代图像生成模型，细节更丰富，效果更真实</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-bolt text-gray-700"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-1">实时生成状态</h4>
+                                <p class="text-sm text-gray-600">智能轮询机制，实时反馈任务进度</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-shield-halved text-gray-700"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold mb-1">本地数据存储</h4>
+                                <p class="text-sm text-gray-600">IndexedDB 持久化，您的数据安全保存在本地</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Visual -->
+                <div class="section-reveal relative">
+                    <div class="aspect-square rounded-3xl bg-gray-100 overflow-hidden">
+                        <img src="https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=800&h=800&fit=crop" alt="建筑渲染" class="w-full h-full object-cover">
+                    </div>
+                    <!-- Floating badge -->
+                    <div class="absolute -bottom-6 -left-6 bg-white rounded-2xl shadow-xl p-6 border border-gray-100">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 bg-black rounded-xl flex items-center justify-center">
+                                <i class="fas fa-image text-white"></i>
+                            </div>
+                            <div>
+                                <div class="text-2xl font-bold">4K</div>
+                                <div class="text-xs text-gray-500">超高清输出</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="py-20 bg-black text-white">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-12">
+                <div class="section-reveal text-center">
+                    <div class="text-4xl sm:text-5xl font-display font-semibold stat-number" data-target="10">10+</div>
+                    <div class="text-gray-400 mt-2 text-sm">画面比例选项</div>
+                </div>
+                <div class="section-reveal text-center" style="transition-delay: 0.1s;">
+                    <div class="text-4xl sm:text-5xl font-display font-semibold stat-number">3</div>
+                    <div class="text-gray-400 mt-2 text-sm">输出精度等级</div>
+                </div>
+                <div class="section-reveal text-center" style="transition-delay: 0.2s;">
+                    <div class="text-4xl sm:text-5xl font-display font-semibold stat-number">4</div>
+                    <div class="text-gray-400 mt-2 text-sm">标注工具类型</div>
+                </div>
+                <div class="section-reveal text-center" style="transition-delay: 0.3s;">
+                    <div class="text-4xl sm:text-5xl font-display font-semibold stat-number">∞</div>
+                    <div class="text-gray-400 mt-2 text-sm">创作可能性</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Workflow Section -->
+    <section class="py-32">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="section-reveal text-center max-w-3xl mx-auto mb-20">
+                <div class="accent-line mx-auto mb-8"></div>
+                <h2 class="font-display text-4xl sm:text-5xl font-semibold mb-6">
+                    简单三步<br>开始创作
+                </h2>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <!-- Step 1 -->
+                <div class="section-reveal text-center">
+                    <div class="w-20 h-20 bg-black text-white rounded-full flex items-center justify-center text-2xl font-display mx-auto mb-6">
+                        1
+                    </div>
+                    <h3 class="text-xl font-semibold mb-3">描述您的创意</h3>
+                    <p class="text-gray-600">
+                        输入设计描述或使用 AI 优化提示词，
+                        上传参考图片和风格参考图
+                    </p>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="section-reveal text-center" style="transition-delay: 0.1s;">
+                    <div class="w-20 h-20 bg-black text-white rounded-full flex items-center justify-center text-2xl font-display mx-auto mb-6">
+                        2
+                    </div>
+                    <h3 class="text-xl font-semibold mb-3">配置生成参数</h3>
+                    <p class="text-gray-600">
+                        选择应用场景、画面比例、输出精度
+                        和生成数量
+                    </p>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="section-reveal text-center" style="transition-delay: 0.2s;">
+                    <div class="w-20 h-20 bg-black text-white rounded-full flex items-center justify-center text-2xl font-display mx-auto mb-6">
+                        3
+                    </div>
+                    <h3 class="text-xl font-semibold mb-3">获取结果</h3>
+                    <p class="text-gray-600">
+                        AI 自动生成图片，支持预览、
+                        下载和二次创作
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-32 bg-gray-50">
+        <div class="max-w-4xl mx-auto px-6 lg:px-8 text-center">
+            <div class="section-reveal">
+                <h2 class="font-display text-4xl sm:text-5xl font-semibold mb-6">
+                    准备好开始了吗?
+                </h2>
+                <p class="text-lg text-gray-600 mb-12 max-w-2xl mx-auto">
+                    加入数千名设计师的行列，用 AI 释放您的创作潜能
+                </p>
+                <a href="./nanobananapro生图平台.html" class="btn-primary inline-flex px-10 py-5 rounded-full text-lg font-medium">
+                    <span class="flex items-center gap-3">
+                        免费开始使用
+                        <i class="fas fa-arrow-right"></i>
+                    </span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 border-t border-gray-100">
+        <div class="max-w-7xl mx-auto px-6 lg:px-8">
+            <div class="grid md:grid-cols-4 gap-12 mb-16">
+                <!-- Brand -->
+                <div class="md:col-span-2">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-10 h-10 bg-black rounded-lg flex items-center justify-center">
+                            <i class="fas fa-city text-white text-sm"></i>
+                        </div>
+                        <span class="font-display text-xl font-semibold">UAL AI-Powered Design Platform</span>
+                    </div>
+                    <p class="text-gray-600 max-w-sm">
+                        专为城市规划、建筑设计和景观设计行业打造的 AI 图像生成平台。
+                    </p>
+                </div>
+
+                <!-- Product -->
+                <div>
+                    <h4 class="font-semibold mb-4">产品</h4>
+                    <ul class="space-y-3 text-sm text-gray-600">
+                        <li><a href="#features" class="hover:text-black transition-colors">核心功能</a></li>
+                        <li><a href="#scenarios" class="hover:text-black transition-colors">应用场景</a></li>
+                        <li><a href="#tech" class="hover:text-black transition-colors">技术优势</a></li>
+                    </ul>
+                </div>
+
+                <!-- Legal -->
+                <div>
+                    <h4 class="font-semibold mb-4">法律</h4>
+                    <ul class="space-y-3 text-sm text-gray-600">
+                        <li><a href="#" class="hover:text-black transition-colors">使用条款</a></li>
+                        <li><a href="#" class="hover:text-black transition-colors">隐私政策</a></li>
+                        <li><a href="#" class="hover:text-black transition-colors">联系我们</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Bottom -->
+            <div class="pt-8 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <p class="text-sm text-gray-500">
+                    © 2026 UAL AI-Powered Design Platform. All rights reserved.
+                </p>
+                <p class="text-sm text-gray-500">
+                    Created by <span class="font-medium">缪文杰</span>
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Custom cursor
+        const cursorDot = document.querySelector('.cursor-dot');
+        const cursorOutline = document.querySelector('.cursor-outline');
+
+        if (window.innerWidth >= 1024) {
+            let mouseX = 0, mouseY = 0;
+            let dotX = 0, dotY = 0;
+
+            document.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+
+                // Update outline immediately
+                cursorOutline.style.left = mouseX - 14 + 'px';
+                cursorOutline.style.top = mouseY - 14 + 'px';
+            });
+
+            // Smooth dot movement with lag
+            function animateDot() {
+                const dx = mouseX - dotX;
+                const dy = mouseY - dotY;
+
+                dotX += dx * 0.15;
+                dotY += dy * 0.15;
+
+                cursorDot.style.left = dotX - 2.5 + 'px';
+                cursorDot.style.top = dotY - 2.5 + 'px';
+
+                requestAnimationFrame(animateDot);
+            }
+            animateDot();
+
+            // Hover effect on interactive elements
+            const interactiveElements = document.querySelectorAll('a, button');
+            interactiveElements.forEach(el => {
+                el.addEventListener('mouseenter', () => {
+                    cursorOutline.style.width = '45px';
+                    cursorOutline.style.height = '45px';
+                    cursorOutline.style.left = parseFloat(cursorOutline.style.left) - 8.5 + 'px';
+                    cursorOutline.style.top = parseFloat(cursorOutline.style.top) - 8.5 + 'px';
+                });
+                el.addEventListener('mouseleave', () => {
+                    cursorOutline.style.width = '28px';
+                    cursorOutline.style.height = '28px';
+                });
+            });
+        }
+
+        // Section reveal on scroll
+        const sectionReveals = document.querySelectorAll('.section-reveal');
+
+        const revealSection = () => {
+            sectionReveals.forEach(section => {
+                const sectionTop = section.getBoundingClientRect().top;
+                const windowHeight = window.innerHeight;
+
+                if (sectionTop < windowHeight - 100) {
+                    section.classList.add('visible');
+                }
+            });
+        };
+
+        window.addEventListener('scroll', revealSection);
+        window.addEventListener('load', revealSection);
+
+        // Smooth scroll for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Navbar background on scroll
+        const nav = document.querySelector('nav');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                nav.style.boxShadow = '0 4px 30px rgba(0, 0, 0, 0.05)';
+            } else {
+                nav.style.boxShadow = 'none';
+            }
+        });
+
+        // Parallax effect for floating shapes
+        document.addEventListener('mousemove', (e) => {
+            const shapes = document.querySelectorAll('.floating-shape');
+            const mouseX = e.clientX / window.innerWidth - 0.5;
+            const mouseY = e.clientY / window.innerHeight - 0.5;
+
+            shapes.forEach((shape, index) => {
+                const speed = (index + 1) * 10;
+                shape.style.transform = `translate(${mouseX * speed}px, ${mouseY * speed}px)`;
+            });
+        });
+    </script>
+</body>
+</html>

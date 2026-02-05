@@ -46,6 +46,7 @@ npx serve .
 
 ```
 AI_for_UrbanDesign/
+├── index.html                                # 营销落地页
 ├── nanobananapro生图平台 -用户系统.html    # 主应用文件（单文件）
 ├── plan.md                                   # Next.js 重构方案
 ├── plan_html.md                              # HTML 版本优化方案
