@@ -6,22 +6,39 @@
 - 用户向平台充值积分
 - 生成图片时自动扣除积分
 - 显示当前余额和消费记录
-- **积分按成本定价**（不赚差价）
+- **积分定价包含利润**（1K/2K 利润 ¥0.04，4K 利润 ¥0.08）
+- **API 密钥统一管理**（Supabase Edge Functions 存储，不暴露给前端）
 
 ### 1.2 积分与成本对应关系
 
-| 生成类型 | APIMart 成本 | 消耗积分 | 积分价值 |
-|---------|-------------|---------|---------|
-| 1K 图片 | $0.05 | 5 积分 | 1 积分 = $0.01 ≈ ¥0.072 |
-| 2K 图片 | $0.05 | 5 积分 | 同上 |
-| 4K 图片 | $0.10 | 10 积分 | 同上 |
+**汇率：** 1 USD ≈ 7.2 CNY
 
-### 1.3 当前架构分析
+| 生成类型 | APIMart 成本 | 用户支付 | 单张利润 | 消耗积分 | 积分价值 |
+|---------|-------------|---------|---------|---------|---------|
+| 1K 图片 | $0.05 ≈ ¥0.36 | ¥0.40 | ¥0.04 | 5 积分 | 1 积分 = ¥0.08 |
+| 2K 图片 | $0.05 ≈ ¥0.36 | ¥0.40 | ¥0.04 | 5 积分 | 同上 |
+| 4K 图片 | $0.10 ≈ ¥0.72 | ¥0.80 | ¥0.08 | 10 积分 | 同上 |
+
+### 1.3 为什么不直接分发 API Key？
+
+| 方式 | 优势 | 劣势 |
+|-----|------|------|
+| **直接分发 API Key** | 实现简单 | ❌ 密钥泄露风险<br>❌ 无法追踪用户行为<br>❌ 失去定价控制权<br>❌ 用户可能分享滥用 |
+| **积分系统 + 统一后端** | ✅ API 密钥保密<br>✅ 完全控制定价<br>✅ 可追溯消费记录<br>✅ 灵活调整策略 | 需要搭建后端 |
+
+**推荐方案：** 积分系统 + Supabase 后端 + 统一调用 APIMart API
+
+### 1.4 当前架构分析
 **现状：**
 - 纯前端单文件应用（无后端）
 - 用户自己提供 APIMart API Key
 - 数据仅存储在本地（IndexedDB + localStorage）
 - 无真正的用户验证
+
+**改造后：**
+- 后端验证积分扣除（Supabase Edge Functions）
+- 平台统一管理 APIMart API Key
+- 用户通过积分系统消费
 
 **核心问题：**
 - 积分系统必须有服务端验证，否则用户可修改本地数据
@@ -30,106 +47,167 @@
 
 ## 二、定价策略
 
-### 2.1 充值套餐（成本定价）
+### 2.1 积分价值设定
 
-| 充值金额 | 获得积分 | 汇率 | 备注 |
-|---------|---------|------|------|
-| ¥10 | 139 积分 | ¥0.072/积分 | 体验包 |
-| ¥50 | 694 积分 | ¥0.072/积分 | 常用包 |
-| ¥100 | 1389 积分 | ¥0.072/积分 | 充值包 |
-| ¥500 | 6944 积分 | ¥0.072/积分 | 大容量包 |
+**1 积分 = ¥0.08**
 
-**计算说明：** 1 积分 = $0.01 × 7.2（汇率）≈ ¥0.072
+### 2.2 生成消耗与利润
 
-### 2.2 生成消耗
-
-| 生成类型 | 消耗积分 | 用户成本 | APIMart 成本 | 平台利润 |
-|---------|---------|---------|-------------|---------|
-| 1K 单张 | 5 积分 | ¥0.36 | ¥0.36 | 0 |
-| 2K 单张 | 5 积分 | ¥0.36 | ¥0.36 | 0 |
-| 4K 单张 | 10 积分 | ¥0.72 | ¥0.72 | 0 |
-| 批量 N 张 | 基础 × N | - | - | 0 |
+| 生成类型 | APIMart 成本 | 消耗积分 | 用户支付 | 单张利润 | 利润率 |
+|---------|-------------|---------|---------|---------|--------|
+| 1K 单张 | ¥0.36 | 5 积分 | ¥0.40 | ¥0.04 | 11% |
+| 2K 单张 | ¥0.36 | 5 积分 | ¥0.40 | ¥0.04 | 11% |
+| 4K 单张 | ¥0.72 | 10 积分 | ¥0.80 | ¥0.08 | 11% |
+| 批量 N 张 | 基础 × N | - | - | 基础利润 × N | 11% |
 
 **示例：**
-- 生成 4 张 1K 图片 = 5 × 4 = 20 积分 = ¥1.44
-- 生成 2 张 4K 图片 = 10 × 2 = 20 积分 = ¥1.44
+- 生成 4 张 1K 图片 = 5 × 4 = 20 积分 = ¥1.60（成本 ¥1.44，利润 ¥0.16）
+- 生成 2 张 4K 图片 = 10 × 2 = 20 积分 = ¥1.60（成本 ¥1.44，利润 ¥0.16）
+
+### 2.3 充值套餐设计（含赠送 + 支付手续费预留）
+
+| 充值金额 | 获得积分 | 赠送积分 | 实际价值 | 优惠力度 | 平台收益 |
+|---------|---------|---------|---------|---------|---------|
+| **体验包** | ¥6 | 50 积分 | - | ¥4.00 | 无 | ¥~1.5 |
+| **基础包** | ¥25 | 300 积分 | - | ¥24.00 | 无 | ¥~0.5 |
+| **标准包** | ¥50 | 625 积分 | 50 | ¥50.00 | 无 | ¥~0 |
+| **专业包** | ¥100 | 1300 积分 | 150 | ¥104.00 | 4% | ¥~2 |
+| **旗舰包** | ¥500 | 7000 积分 | 1000 | ¥560.00 | 12% | ¥~30 |
+
+**说明：**
+- 支付通道手续费约 2-3%（虎皮椒）
+- 大额套餐赠送积分更多，鼓励批量充值
+- 平台收益 = 售价 - (赠送积分 × 0.08) - 通道费
+
+### 2.4 收益测算
+
+假设月活 100 人，平均每人每月生成 50 张图（1K/2K）：
+
+| 指标 | 数值 |
+|------|------|
+| 月生成量 | 5,000 张 |
+| APIMart 成本 | ¥1,800（5,000 × ¥0.36） |
+| 用户支付 | ¥2,000（5,000 × ¥0.40） |
+| **月利润** | **¥200** |
+
+假设月活 1,000 人：
+| 指标 | 数值 |
+|------|------|
+| 月生成量 | 50,000 张 |
+| APIMart 成本 | ¥18,000 |
+| 用户支付 | ¥20,000 |
+| **月利润** | **¥2,000** |
 
 ---
 
 ## 三、架构方案
 
-### 推荐方案：LeanCloud BaaS（快速上线）
+### 推荐方案：Supabase BaaS（LeanCloud 替代）
+
+**原因：** LeanCloud 已停止新用户注册
 
 ```
 前端: 保持现有 HTML
-后端: LeanCloud（免费额度）
+后端: Supabase（免费额度）
 支付: 虎皮椒 / PayJS（个人友好）
-数据库: LeanCloud 内置
+数据库: Supabase PostgreSQL
 ```
 
-**优势：**
-- 快速上线（1-2周）
-- 无需服务器运维
-- 免费额度：500请求/秒
-- 国内友好，支持微信/支付宝
+**Supabase 优势：**
+- 开源 BaaS，功能类似 LeanCloud
+- 免费额度：500MB 数据库 + 1GB 存储 + 每月 50 万次 API 调用
+- 支持 Edge Functions（存放 API Key 安全）
+- 内置 PostgreSQL（比 NoSQL 更适合交易记录）
+- 支持 Row Level Security（行级安全）
+- 国内可访问（虽稍慢于国内服务）
+
+**免费额度详情：**
+- 数据库：500MB
+- 文件存储：1GB
+- 带宽：2GB/月
+- API 调用：50 万次/月
+- Edge Functions：500k invocations/月
 
 ---
 
 ## 四、数据库设计
 
-### 4.1 LeanCloud 数据表
+### 4.1 Supabase PostgreSQL 数据表
 
-```javascript
-// _User 表（用户，LeanCloud 内置）
-{
-  objectId: string,
-  username: string,          // 用户名
-  password: string,          // 密码（LeanCloud 自动加密）
-  credits: number,           // 当前积分余额
-  totalRecharged: number,    // 累计充值金额（元）
-  totalConsumed: number,     // 累计消耗积分
-  createdAt: Date,
-  updatedAt: Date
-}
+```sql
+-- 用户表（使用 Supabase Auth 扩展）
+CREATE TABLE public.profiles (
+  id UUID REFERENCES auth.users PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL,
+  credits INTEGER DEFAULT 0,
+  total_recharged DECIMAL(10,2) DEFAULT 0,
+  total_consumed INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-// Transaction 表（交易记录）
-{
-  objectId: string,
-  user: pointer(to _User),   // 关联用户
-  type: string,              // 'recharge' | 'consume' | 'refund'
-  amount: number,            // 积分变化（正数=增加，负数=减少）
-  balanceAfter: number,      // 交易后余额
-  description: string,       // 描述
-  metadata: object,          // 额外信息 { resolution, count, projectId }
-  status: string,            // 'completed' | 'failed'
-  createdAt: Date
-}
+-- 交易记录表
+CREATE TABLE public.transactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('recharge', 'consume', 'refund')),
+  amount INTEGER NOT NULL, -- 积分变化（正数=增加，负数=减少）
+  balance_after INTEGER NOT NULL,
+  description TEXT,
+  metadata JSONB,
+  status TEXT DEFAULT 'completed' CHECK (status IN ('completed', 'failed', 'pending')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-// RechargeOrder 表（充值订单）
-{
-  objectId: string,
-  user: pointer(to _User),
-  amount: number,            // 充值金额（元）
-  credits: number,           // 获得积分
-  method: string,            // 'wechat' | 'alipay'
-  status: string,            // 'pending' | 'paid' | 'failed'
-  transactionId: string,     // 第三方交易ID
-  createdAt: Date,
-  paidAt: Date
-}
+-- 充值订单表
+CREATE TABLE public.recharge_orders (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) NOT NULL,
+  amount DECIMAL(10,2) NOT NULL, -- 充值金额（元）
+  credits INTEGER NOT NULL, -- 获得积分
+  method TEXT CHECK (method IN ('wechat', 'alipay')),
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'failed', 'cancelled')),
+  transaction_id TEXT, -- 第三方交易ID
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  paid_at TIMESTAMPTZ
+);
 
-// GenerationLog 表（生成日志）
-{
-  objectId: string,
-  user: pointer(to _User),
-  projectId: string,
-  prompt: string,
-  config: object,            // { ratio, resolution, n }
-  cost: number,              // 消耗积分
-  apimartTaskId: string,     // APIMart 任务ID
-  status: string,
-  createdAt: Date
-}
+-- 生成日志表
+CREATE TABLE public.generation_logs (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES public.profiles(id) NOT NULL,
+  project_id TEXT,
+  prompt TEXT,
+  config JSONB, -- { ratio, resolution, n }
+  cost INTEGER NOT NULL, -- 消耗积分
+  apimart_task_id TEXT,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'succeeded', 'failed')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 创建索引
+CREATE INDEX idx_transactions_user_id ON public.transactions(user_id);
+CREATE INDEX idx_transactions_created_at ON public.transactions(created_at DESC);
+CREATE INDEX idx_recharge_orders_user_id ON public.recharge_orders(user_id);
+CREATE INDEX idx_generation_logs_user_id ON public.generation_logs(user_id);
+
+-- Row Level Security 策略
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recharge_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.generation_logs ENABLE ROW LEVEL SECURITY;
+
+-- 用户只能访问自己的数据
+CREATE POLICY "Users can view own profile" ON public.profiles
+  FOR SELECT USING (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can view own transactions" ON public.transactions
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can view own orders" ON public.recharge_orders
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can view own logs" ON public.generation_logs
+  FOR SELECT USING (auth.uid() = user_id);
 ```
 
 ---
@@ -139,197 +217,425 @@
 ### 5.1 用户相关
 
 ```
-POST /api/user/register
-请求: { username, password }
-响应: { userId, token }
+POST /auth/v1/signup
+请求: { email, password, username }
+响应: { user, session }
 
-POST /api/user/login
-请求: { username, password }
-响应: { userId, token, credits }
+POST /auth/v1/token?grant_type=password
+请求: { email, password }
+响应: { access_token, user }
 
-GET  /api/user/info?userId=xxx
-响应: { username, credits, totalRecharged, totalConsumed }
+GET  /rest/v1/profiles?id=eq.{userId}
+响应: [{ username, credits, total_recharged, total_consumed }]
 
-GET  /api/user/transactions?userId=xxx&limit=20
-响应: [{ type, amount, description, createdAt }]
+GET  /rest/v1/transactions?user_id=eq.{userId}&limit=20&order=created_at.desc
+响应: [{ type, amount, description, created_at }]
 ```
 
-### 5.2 积分操作
+### 5.2 积分操作（Edge Functions）
 
 ```
-POST /api/credits/deduct
-请求: { userId, cost, description, metadata }
+POST /functions/v1/deduct-credits
+请求: { cost, description, metadata }
 响应: { success, balance, transactionId }
 
-POST /api/credits/refund
+POST /functions/v1/refund-credits
 请求: { transactionId, reason }
 响应: { success, balance }
 
-GET  /api/credits/balance?userId=xxx
-响应: { balance }
+GET  /rest/v1/profiles?select=credits&id=eq.{userId}
+响应: [{ credits }]
 ```
 
-### 5.3 充值相关
+### 5.3 充值相关（Edge Functions）
 
 ```
-GET  /api/recharge/packages
+GET  /functions/v1/recharge-packages
 响应: [{ amount, credits, badge }]
 
-POST /api/recharge/create
-请求: { userId, amount, method }
+POST /functions/v1/create-recharge
+请求: { amount, credits, method }
 响应: { orderId, paymentUrl, qrCode }
 
-POST /api/recharge/callback
+POST /functions/v1/payment-callback
 请求: { transactionId, status, sign }
 响应: { success, credits }
 ```
 
 ---
 
-## 六、LeanCloud 云函数
+## 六、Supabase Edge Functions
 
-### 6.1 用户注册
+Edge Functions 使用 Deno + TypeScript/JavaScript 编写。
 
-```javascript
-AV.Cloud.define('register', async (request) => {
-  const { username, password } = request.params;
+### 6.1 项目初始化
 
-  // 检查用户名是否存在
-  const query = new AV.Query('_User');
-  query.equalTo('username', username);
-  const exists = await query.first();
+```bash
+# 安装 Supabase CLI
+npm install -g supabase
 
-  if (exists) {
-    throw new Error('用户名已存在');
+# 初始化项目
+supabase init
+
+# 链接到远程项目
+supabase link --project-ref your-project-ref
+
+# 启动本地开发
+supabase start
+```
+
+### 6.2 环境变量配置
+
+```bash
+# supabase/functions/_shared/config.ts
+export const config = {
+  apimartApiKey: Deno.env.get('APIMART_API_KEY'),
+  huxiaoAppId: Deno.env.get('HUXIAO_APP_ID'),
+  huxiaoAppSecret: Deno.env.get('HUXIAO_APP_SECRET'),
+};
+```
+
+### 6.3 扣除积分
+
+```typescript
+// supabase/functions/deduct-credits/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+serve(async (req) => {
+  try {
+    const { cost, description, metadata } = await req.json();
+
+    // 获取用户信息（从 JWT token）
+    const authHeader = req.headers.get('Authorization')!;
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Unauthorized');
+
+    // 获取用户当前积分
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('credits')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) throw new Error('User not found');
+
+    const balance = profile.credits;
+
+    // 检查余额
+    if (balance < cost) {
+      throw new Error(`积分不足！需要 ${cost}，当前 ${balance}`);
+    }
+
+    // 扣除积分
+    const newBalance = balance - cost;
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        credits: newBalance,
+        total_consumed: profile.total_consumed + cost,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', user.id);
+
+    if (updateError) throw updateError;
+
+    // 记录交易
+    const { data: transaction, error: txError } = await supabase
+      .from('transactions')
+      .insert({
+        user_id: user.id,
+        type: 'consume',
+        amount: -cost,
+        balance_after: newBalance,
+        description,
+        metadata,
+        status: 'completed'
+      })
+      .select()
+      .single();
+
+    if (txError) throw txError;
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        balance: newBalance,
+        transactionId: transaction.id
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
   }
-
-  // 创建用户
-  const user = new AV.User();
-  user.set('username', username);
-  user.setPassword(password);
-  user.set('credits', 0);  // 初始积分
-  user.set('totalRecharged', 0);
-  user.set('totalConsumed', 0);
-
-  await user.signUp();
-
-  return {
-    userId: user.id,
-    username: user.get('username'),
-    credits: 0
-  };
 });
 ```
 
-### 6.2 扣除积分
+### 6.4 退还积分
 
-```javascript
-AV.Cloud.define('deductCredits', async (request) => {
-  const { userId, cost, description, metadata } = request.params;
+```typescript
+// supabase/functions/refund-credits/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-  // 获取用户
-  const user = await new AV.Query('_User').get(userId);
+serve(async (req) => {
+  try {
+    const { transactionId } = await req.json();
 
-  if (!user) {
-    throw new Error('用户不存在');
+    const authHeader = req.headers.get('Authorization')!;
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!  // 使用 service role key
+    );
+
+    // 获取原交易记录
+    const { data: transaction, error: txError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('id', transactionId)
+      .single();
+
+    if (txError || !transaction || transaction.type !== 'consume') {
+      throw new Error('无效的交易ID');
+    }
+
+    const refundAmount = Math.abs(transaction.amount);
+
+    // 退还积分
+    const { data: profile, error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        credits: supabase.raw(`credits + ${refundAmount}`),
+        total_consumed: supabase.raw(`total_consumed - ${refundAmount}`),
+        updated_at: new Date().toISOString()
+      })
+      .select('credits')
+      .eq('id', transaction.user_id)
+      .single();
+
+    if (updateError) throw updateError;
+
+    // 记录退款交易
+    await supabase.from('transactions').insert({
+      user_id: transaction.user_id,
+      type: 'refund',
+      amount: refundAmount,
+      balance_after: profile.credits + refundAmount,
+      description: '生成失败退还',
+      status: 'completed'
+    });
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        balance: profile.credits + refundAmount
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
   }
-
-  const balance = user.get('credits');
-
-  // 检查余额
-  if (balance < cost) {
-    throw new Error(`积分不足！需要 ${cost}，当前 ${balance}`);
-  }
-
-  // 扣除积分
-  user.set('credits', balance - cost);
-  user.increment('totalConsumed', cost);
-  await user.save();
-
-  // 记录交易
-  const transaction = new AV.Object('Transaction');
-  transaction.set('user', user);
-  transaction.set('type', 'consume');
-  transaction.set('amount', -cost);
-  transaction.set('balanceAfter', balance - cost);
-  transaction.set('description', description);
-  transaction.set('metadata', metadata);
-  transaction.set('status', 'completed');
-  await transaction.save();
-
-  return {
-    success: true,
-    balance: balance - cost,
-    transactionId: transaction.id
-  };
 });
 ```
 
-### 6.3 退还积分
+### 6.5 创建充值订单
 
-```javascript
-AV.Cloud.define('refundCredits', async (request) => {
-  const { transactionId } = request.params;
+```typescript
+// supabase/functions/create-recharge/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-  // 获取原交易记录
-  const transaction = await new AV.Query('Transaction').get(transactionId);
+serve(async (req) => {
+  try {
+    const { amount, credits, method } = await req.json();
 
-  if (!transaction || transaction.get('type') !== 'consume') {
-    throw new Error('无效的交易ID');
+    const authHeader = req.headers.get('Authorization')!;
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Unauthorized');
+
+    // 创建充值订单
+    const { data: order, error: orderError } = await supabase
+      .from('recharge_orders')
+      .insert({
+        user_id: user.id,
+        amount,
+        credits,
+        method,
+        status: 'pending'
+      })
+      .select()
+      .single();
+
+    if (orderError) throw orderError;
+
+    // 调用虎皮椒支付接口
+    const payment = await createHuxiaoPayment({
+      orderId: order.id,
+      amount: amount.toString(),
+      title: `充值 ${credits} 积分`
+    });
+
+    return new Response(
+      JSON.stringify({
+        orderId: order.id,
+        paymentUrl: payment.url,
+        qrCode: payment.qrCode
+      }),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
   }
-
-  const user = transaction.get('user');
-  const refundAmount = Math.abs(transaction.get('amount'));
-
-  // 退还积分
-  user.increment('credits', refundAmount);
-  user.increment('totalConsumed', -refundAmount);
-  await user.save();
-
-  // 记录退款交易
-  const refundTransaction = new AV.Object('Transaction');
-  refundTransaction.set('user', user);
-  refundTransaction.set('type', 'refund');
-  refundTransaction.set('amount', refundAmount);
-  refundTransaction.set('balanceAfter', user.get('credits'));
-  refundTransaction.set('description', '生成失败退还');
-  refundTransaction.set('status', 'completed');
-  await refundTransaction.save();
-
-  return {
-    success: true,
-    balance: user.get('credits')
-  };
 });
-```
 
-### 6.4 充值订单
+// 虎皮椒支付接口
+async function createHuxiaoPayment(params: any) {
+  const huxiaoConfig = {
+    appId: Deno.env.get('HUXIAO_APP_ID'),
+    appSecret: Deno.env.get('HUXIAO_APP_SECRET'),
+    apiUrl: 'https://api.xunhupay.com'
+  };
 
-```javascript
-AV.Cloud.define('createRecharge', async (request) => {
-  const { userId, amount, credits, method } = request.params;
+  const paymentParams = {
+    appid: huxiaoConfig.appId,
+    trade_order_id: params.orderId,
+    total_fee: params.amount,
+    title: params.title,
+    time: Math.floor(Date.now() / 1000),
+    notify_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/payment-callback`,
+    nonce_str: Math.random().toString(36).substr(2)
+  };
 
-  // 创建充值订单
-  const order = new AV.Object('RechargeOrder');
-  order.set('user', AV.Object.createWithoutData('_User', userId));
-  order.set('amount', amount);
-  order.set('credits', credits);
-  order.set('method', method);
-  order.set('status', 'pending');
-  await order.save();
+  // 生成签名
+  const sign = generateSignature(paymentParams, huxiaoConfig.appSecret);
+  paymentParams.sign = sign;
 
-  // 调用支付接口（虎皮椒为例）
-  const payment = await createHuxiaoPayment({
-    orderId: order.id,
-    amount: amount,
-    title: `充值 ${credits} 积分`
+  const response = await fetch(`${huxiaoConfig.apiUrl}/payment/do.html`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(paymentParams)
   });
 
-  return {
-    orderId: order.id,
-    paymentUrl: payment.url,
-    qrCode: payment.qrCode
-  };
+  return await response.json();
+}
+
+function generateSignature(params: any, secret: string): string {
+  const sorted = Object.keys(params).sort()
+    .filter(k => k !== 'sign')
+    .map(k => `${k}=${params[k]}`)
+    .join('&');
+
+  // 需要引入 md5 库
+  return md5(sorted + secret).toUpperCase();
+}
+```
+
+### 6.6 支付回调处理
+
+```typescript
+// supabase/functions/payment-callback/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+serve(async (req) => {
+  try {
+    const params = await req.json();
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
+    // 1. 验证签名
+    const expectedSign = generateSignature(params, Deno.env.get('HUXIAO_APP_SECRET')!);
+    if (expectedSign !== params.sign) {
+      throw new Error('签名验证失败');
+    }
+
+    // 2. 查找订单
+    const { data: order, error: orderError } = await supabase
+      .from('recharge_orders')
+      .select('*')
+      .eq('id', params.trade_order_id)
+      .single();
+
+    if (orderError || !order) {
+      throw new Error('订单不存在');
+    }
+
+    // 避免重复处理
+    if (order.status === 'paid') {
+      return new Response(JSON.stringify({ code: 0, msg: 'OK' }));
+    }
+
+    // 3. 更新订单
+    const { error: updateError } = await supabase
+      .from('recharge_orders')
+      .update({
+        status: 'paid',
+        transaction_id: params.transaction_id,
+        paid_at: new Date().toISOString()
+      })
+      .eq('id', order.id);
+
+    if (updateError) throw updateError;
+
+    // 4. 增加用户积分
+    const { data: profile } = await supabase
+      .from('profiles')
+      .update({
+        credits: supabase.raw(`credits + ${order.credits}`),
+        total_recharged: supabase.raw(`total_recharged + ${order.amount}`),
+        updated_at: new Date().toISOString()
+      })
+      .select('credits')
+      .eq('id', order.user_id)
+      .single();
+
+    // 5. 记录交易
+    await supabase.from('transactions').insert({
+      user_id: order.user_id,
+      type: 'recharge',
+      amount: order.credits,
+      balance_after: profile.credits + order.credits,
+      description: `充值 ¥${order.amount}`,
+      status: 'completed'
+    });
+
+    return new Response(JSON.stringify({ code: 0, msg: 'OK' }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 });
 ```
 
@@ -337,7 +643,14 @@ AV.Cloud.define('createRecharge', async (request) => {
 
 ## 七、前端改动
 
-### 7.1 UI 新增组件
+### 7.1 引入 Supabase SDK
+
+```html
+<!-- 在 <head> 中添加 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+```
+
+### 7.2 UI 新增组件
 
 **积分显示区域（用户信息旁）**
 ```html
@@ -357,7 +670,7 @@ AV.Cloud.define('createRecharge', async (request) => {
 ```html
 <div id="costPreview" class="flex items-center justify-between px-4 py-2 bg-blue-50 rounded-lg text-xs text-blue-700">
     <span>生成配置：2K × 4张</span>
-    <span>预计消耗：<strong>20 积分</strong> (¥1.44)</span>
+    <span>预计消耗：<strong>20 积分</strong> (¥1.60)</span>
 </div>
 ```
 
@@ -399,9 +712,17 @@ AV.Cloud.define('createRecharge', async (request) => {
 </div>
 ```
 
-### 7.2 JavaScript 新增代码
+### 7.3 JavaScript 新增代码
 
 ```javascript
+// ========== Supabase 配置 ==========
+const SUPABASE_CONFIG = {
+  url: 'https://your-project.supabase.co',
+  anonKey: 'your-anon-key'
+};
+
+const supabase = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+
 // ========== 积分系统状态 ==========
 const creditsState = {
     balance: 0,
@@ -409,12 +730,13 @@ const creditsState = {
     isLoading: false
 };
 
-// 充值套餐
+// 充值套餐（新定价：1 积分 = ¥0.08）
 const RECHARGE_PACKAGES = [
-    { amount: 10, credits: 139, badge: '体验包' },
-    { amount: 50, credits: 694, badge: '常用包' },
-    { amount: 100, credits: 1389, badge: '充值包', hot: true },
-    { amount: 500, credits: 6944, badge: '大容量包', best: true }
+    { amount: 6, credits: 50, badge: '体验包' },
+    { amount: 25, credits: 300, badge: '基础包' },
+    { amount: 50, credits: 625, badge: '标准包', bonus: 50, hot: true },
+    { amount: 100, credits: 1300, badge: '专业包', bonus: 150, best: true },
+    { amount: 500, credits: 7000, badge: '旗舰包', bonus: 1000 }
 ];
 
 // ========== 积分消耗计算 ==========
@@ -426,10 +748,16 @@ function calculateCost(resolution, count) {
 // ========== 获取用户信息 ==========
 async function fetchUserInfo() {
     try {
-        const response = await fetch(`${LEANCLOUD_URL}/api/user/info?userId=${currentUserId}`, {
-            headers: { 'X-LC-Session': sessionToken }
-        });
-        const data = await response.json();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('credits')
+            .eq('id', user.id)
+            .single();
+
+        if (error) throw error;
         creditsState.balance = data.credits;
         updateCreditsDisplay();
     } catch (error) {
@@ -446,7 +774,7 @@ function updateCreditsDisplay() {
 // ========== 更新消耗预览 ==========
 function updateCostPreview() {
     const cost = calculateCost(platformState.res, platformState.n);
-    const yuanCost = (cost * 0.072).toFixed(2);
+    const yuanCost = (cost * 0.08).toFixed(2);
     document.getElementById('costPreview').innerHTML =
         `生成配置：${platformState.res} × ${platformState.n}张 | 预计消耗：<strong>${cost} 积分</strong> (¥${yuanCost})`;
 }
@@ -465,27 +793,15 @@ async function checkBalance() {
 // ========== 扣除积分 ==========
 async function deductCredits(cost, description, metadata) {
     try {
-        const response = await fetch(`${LEANCLOUD_URL}/functions/deductCredits`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-LC-Session': sessionToken
-            },
-            body: JSON.stringify({
-                userId: currentUserId,
-                cost: cost,
-                description: description,
-                metadata: metadata
-            })
+        const { data, error } = await supabase.functions.invoke('deduct-credits', {
+            body: { cost, description, metadata }
         });
 
-        const result = await response.json();
-        if (result.result.success) {
-            creditsState.balance = result.result.balance;
-            updateCreditsDisplay();
-            return result.result;
-        }
-        throw new Error('扣除积分失败');
+        if (error) throw error;
+
+        creditsState.balance = data.balance;
+        updateCreditsDisplay();
+        return data;
     } catch (error) {
         console.error('扣除积分失败:', error);
         alert('扣除积分失败: ' + error.message);
@@ -496,20 +812,13 @@ async function deductCredits(cost, description, metadata) {
 // ========== 退还积分 ==========
 async function refundCredits(transactionId) {
     try {
-        const response = await fetch(`${LEANCLOUD_URL}/functions/refundCredits`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-LC-Session': sessionToken
-            },
-            body: JSON.stringify({ transactionId })
+        const { data, error } = await supabase.functions.invoke('refund-credits', {
+            body: { transactionId }
         });
 
-        const result = await response.json();
-        if (result.result.success) {
-            creditsState.balance = result.result.balance;
-            updateCreditsDisplay();
-        }
+        if (error) throw error;
+        creditsState.balance = data.balance;
+        updateCreditsDisplay();
     } catch (error) {
         console.error('退还积分失败:', error);
     }
@@ -523,6 +832,7 @@ function renderRechargePackages() {
              class="relative p-4 border-2 rounded-xl cursor-pointer hover:border-black transition-all ${pkg.hot ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}">
             ${pkg.best ? '<div class="absolute -top-2 -right-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">推荐</div>' : ''}
             ${pkg.hot ? '<div class="absolute -top-2 -right-2 bg-orange-500 text-white text-xs px-2 py-0.5 rounded-full">热门</div>' : ''}
+            ${pkg.bonus ? `<div class="absolute -top-2 -left-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full">赠送${pkg.bonus}</div>` : ''}
             <div class="flex justify-between items-center">
                 <div>
                     <p class="text-xs text-gray-500">${pkg.badge}</p>
@@ -543,25 +853,14 @@ async function selectPackage(amount, credits) {
     if (!confirmed) return;
 
     try {
-        // 调用创建订单接口
-        const response = await fetch(`${LEANCLOUD_URL}/functions/createRecharge`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-LC-Session': sessionToken
-            },
-            body: JSON.stringify({
-                userId: currentUserId,
-                amount: amount,
-                credits: credits,
-                method: 'wechat'
-            })
+        const { data, error } = await supabase.functions.invoke('create-recharge', {
+            body: { amount, credits, method: 'wechat' }
         });
 
-        const result = await response.json();
+        if (error) throw error;
 
         // 显示支付二维码
-        showPaymentQR(result.result.qrCode);
+        showPaymentQR(data.qrCode);
 
     } catch (error) {
         console.error('创建充值订单失败:', error);
@@ -570,7 +869,7 @@ async function selectPackage(amount, credits) {
 }
 ```
 
-### 7.3 修改生成流程
+### 7.4 修改生成流程
 
 ```javascript
 // 修改 executeSynthesis 函数
@@ -592,29 +891,21 @@ async function executeSynthesis() {
     }
 
     try {
-        // 3. 调用 APIMart API（原有逻辑）
-        const key = document.getElementById('apiMartKey').value;
-        const response = await fetch(API_ENDPOINTS.generations, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${key}`
-            },
-            body: JSON.stringify({
-                model: "gemini-3-pro-image-preview",
+        // 3. 调用 APIMart API（原有逻辑，但现在使用 Edge Function 代理）
+        const { data, error } = await supabase.functions.invoke('generate-image', {
+            body: {
                 prompt: prompt,
                 size: platformState.ratio,
                 n: platformState.n,
                 resolution: platformState.res,
                 image_urls: [...]
-            })
+            }
         });
 
-        if (!response.ok) throw new Error('API 请求失败');
+        if (error) throw error;
 
-        const data = await response.json();
         // 4. 轮询任务状态（原有逻辑）
-        monitorTask(data.task_id, key, deduction.transactionId);
+        monitorTask(data.task_id, deduction.transactionId);
 
     } catch (error) {
         console.error('生成失败:', error);
@@ -626,7 +917,7 @@ async function executeSynthesis() {
 }
 
 // 修改 monitorTask 函数，添加 transactionId 参数
-async function monitorTask(tid, key, transactionId) {
+async function monitorTask(tid, transactionId) {
     // ... 原有轮询逻辑 ...
 
     if (status === 'succeeded') {
@@ -639,128 +930,105 @@ async function monitorTask(tid, key, transactionId) {
 }
 ```
 
+### 7.5 新增：图片生成 Edge Function（隐藏 API Key）
+
+```typescript
+// supabase/functions/generate-image/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+serve(async (req) => {
+  try {
+    const { prompt, size, n, resolution, image_urls } = await req.json();
+
+    const apimartKey = Deno.env.get('APIMART_API_KEY')!;
+
+    const response = await fetch('https://api.apimart.ai/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apimartKey}`
+      },
+      body: JSON.stringify({
+        model: "gemini-3-pro-image-preview",
+        prompt,
+        size,
+        n,
+        resolution,
+        image_urls
+      })
+    });
+
+    const data = await response.json();
+
+    return new Response(
+      JSON.stringify(data),
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+});
+```
+
 ---
 
 ## 八、支付集成（虎皮椒）
 
 ### 8.1 虎皮椒配置
 
-```javascript
-const HUXIAO_CONFIG = {
-  appId: 'your-app-id',
-  appSecret: 'your-app-secret',
-  apiUrl: 'https://api.xunhupay.com',
-  notifyUrl: 'https://your-app.leancloud.cn/api/recharge/callback'
-};
+环境变量（在 Supabase Dashboard → Edge Functions → Settings）：
+
+```bash
+APIMART_API_KEY=your-apimart-key
+HUXIAO_APP_ID=your-app-id
+HUXIAO_APP_SECRET=your-app-secret
 ```
 
-### 8.2 创建支付订单
+### 8.2 虎皮椒申请流程
 
-```javascript
-async function createHuxiaoPayment({ orderId, amount, title }) {
-  const params = {
-    appid: HUXIAO_CONFIG.appId,
-    trade_order_id: orderId,
-    total_fee: amount,
-    title: title,
-    time: Math.floor(Date.now() / 1000),
-    notify_url: HUXIAO_CONFIG.notifyUrl,
-    nonce_str: Math.random().toString(36).substr(2)
-  };
+1. 访问 https://admin.xunhupay.com/
+2. 注册账号（个人/企业均可）
+3. 实名认证
+4. 创建应用，获取 AppID 和 AppSecret
+5. 配置回调 URL：`https://your-project.supabase.co/functions/v1/payment-callback`
 
-  // 生成签名
-  params.sign = generateSignature(params);
+### 8.3 费率说明
 
-  const response = await fetch(`${HUXIAO_CONFIG.apiUrl}/payment/do.html`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params)
-  });
-
-  return await response.json();
-}
-
-function generateSignature(params) {
-  const sorted = Object.keys(params).sort()
-    .filter(k => k !== 'sign')
-    .map(k => `${k}=${params[k]}`)
-    .join('&');
-
-  return md5(sorted + HUXIAO_CONFIG.appSecret).toUpperCase();
-}
-```
-
-### 8.3 支付回调处理
-
-```javascript
-AV.Cloud.define('paymentCallback', async (request) => {
-  const params = request.params;
-
-  // 1. 验证签名
-  const expectedSign = generateSignature(params);
-  if (expectedSign !== params.sign) {
-    throw new Error('签名验证失败');
-  }
-
-  // 2. 查找订单
-  const query = new AV.Query('RechargeOrder');
-  const order = await query.equalTo('objectId', params.trade_order_id).first();
-
-  if (!order || order.get('status') === 'paid') {
-    return { code: 0, msg: 'OK' };  // 避免重复处理
-  }
-
-  // 3. 更新订单
-  order.set('status', 'paid');
-  order.set('transactionId', params.transaction_id);
-  order.set('paidAt', new Date());
-  await order.save();
-
-  // 4. 增加用户积分
-  const user = await order.get('user').fetch();
-  user.increment('credits', order.get('credits'));
-  user.increment('totalRecharged', order.get('amount'));
-  await user.save();
-
-  // 5. 记录交易
-  const transaction = new AV.Object('Transaction');
-  transaction.set('user', user);
-  transaction.set('type', 'recharge');
-  transaction.set('amount', order.get('credits'));
-  transaction.set('balanceAfter', user.get('credits'));
-  transaction.set('description', `充值 ¥${order.get('amount')}`);
-  transaction.set('status', 'completed');
-  await transaction.save();
-
-  return { code: 0, msg: 'OK' };
-});
-```
+- 个人账号：2% + ¥0.1/笔
+- 企业账号：1.5% + ¥0.1/笔
+- 支持微信、支付宝
 
 ---
 
 ## 九、实施步骤
 
-### Week 1: LeanCloud 后端开发
+### Week 1: Supabase 后端开发
 
 | 任务 | 说明 | 预计时间 |
 |-----|------|---------|
-| 注册 LeanCloud 账号 | 创建应用 | 0.5h |
-| 设计数据表 | 创建 Class | 1h |
-| 开发用户注册/登录 | 云函数 | 2h |
-| 开发积分扣除/退还 | 云函数 | 2h |
-| 开发充值订单 | 云函数 | 2h |
-| 开发支付回调 | 云函数 | 3h |
-| 测试所有接口 | Postman | 2h |
+| 注册 Supabase 账号 | 创建项目 | 0.5h |
+| 设计数据表 | SQL 建表 | 1h |
+| 开发用户注册/登录 | Supabase Auth | 1h |
+| 开发积分扣除/退还 | Edge Functions | 2h |
+| 开发充值订单 | Edge Functions | 2h |
+| 开发支付回调 | Edge Functions | 2h |
+| 开发图片生成代理 | Edge Function | 1h |
+| 测试所有接口 | Postman/curl | 2h |
 
 ### Week 2: 前端集成
 
 | 任务 | 说明 | 预计时间 |
 |-----|------|---------|
+| 引入 Supabase SDK | CDN 方式 | 0.5h |
 | 添加积分显示 UI | 顶部余额显示 | 1h |
 | 添加充值 Modal | 套餐选择界面 | 2h |
 | 对接用户 API | 注册/登录 | 2h |
 | 对接积分 API | 扣除/退还 | 2h |
-| 修改生成流程 | 加入积分检查 | 2h |
+| 修改生成流程 | 加入积分检查 + 使用 Edge Function | 2h |
 | 本地测试 | 端到端测试 | 3h |
 
 ### Week 3: 支付与上线
@@ -768,43 +1036,43 @@ AV.Cloud.define('paymentCallback', async (request) => {
 | 任务 | 说明 | 预计时间 |
 |-----|------|---------|
 | 申请虎皮椒账号 | 个人/企业认证 | 1天 |
-| 集成支付接口 | 创建订单/回调 | 4h |
-| 支付测试 | 小额真实支付 | 2h |
-| 安全加固 | 签名验证/防刷 | 3h |
-| 部署上线 | Vercel 前端 | 2h |
+| 集成支付接口 | 创建订单/回调 | 2h |
+| 支付测试 | 小额真实支付 | 1h |
+| 安全加固 | RLS 策略/签名验证 | 2h |
+| 部署上线 | Vercel 前端 | 1h |
 
 ---
 
 ## 十、环境配置
 
-### 10.1 LeanCloud 环境变量
+### 10.1 Supabase 环境变量
 
-```javascript
-const LEANCLOUD_CONFIG = {
-  APP_ID: 'your-app-id',
-  APP_KEY: 'your-app-key',
-  MASTER_KEY: 'your-master-key',  // 仅服务端
-  SERVER_URL: 'https://your-app.leancloud.cn'
-};
+在 Supabase Dashboard → Settings → Edge Functions 中配置：
+
+```bash
+# APIMart API 密钥（不会暴露给前端）
+APIMART_API_KEY=sk-your-apimart-key
+
+# 虎皮椒支付配置
+HUXIAO_APP_ID=your-huxiao-app-id
+HUXIAO_APP_SECRET=your-huxiao-app-secret
 ```
 
 ### 10.2 前端配置
 
 ```html
-<!-- 在 <head> 中引入 LeanCloud SDK -->
-<script src="https://cdn.jsdelivr.net/npm/leancloud-storage@4.0.0/dist/av-min.js"></script>
-
 <script>
-// 初始化 LeanCloud
-AV.init({
-  appId: LEANCLOUD_CONFIG.APP_ID,
-  appKey: LEANCLOUD_CONFIG.APP_KEY,
-  serverURL: LEANCLOUD_CONFIG.SERVER_URL
-});
+// Supabase 配置
+const SUPABASE_CONFIG = {
+  url: 'https://your-project.supabase.co',
+  anonKey: 'your-anon-key'  // 从 Supabase Dashboard 获取
+};
 
-// 当前用户会话
-let currentUserId = null;
-let sessionToken = null;
+// 初始化 Supabase
+const supabase = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+
+// 当前用户会话（由 Supabase Auth 管理）
+let currentUser = null;
 </script>
 ```
 
@@ -816,32 +1084,60 @@ let sessionToken = null;
 
 | 措施 | 说明 |
 |-----|------|
-| HTTPS | 所有 API 通信必须使用 HTTPS |
-| 密码加密 | LeanCloud 自动 bcrypt 加密 |
+| HTTPS | 所有 API 通信必须使用 HTTPS（Supabase 自动提供） |
+| Row Level Security | 用户只能访问自己的数据 |
+| API Key 保护 | APIMart Key 存储在 Edge Functions 环境变量中 |
 | 签名验证 | 支付回调必须验证签名 |
-| Token 过期 | 会话 Token 7天有效期 |
-| 请求限流 | LeanCloud 免费版 500请求/秒 |
+| JWT Token | Supabase Auth 自动管理，1小时有效期 |
+| 请求限流 | Supabase 免费版 50万次/月 |
 
-### 11.2 防刷策略
+### 11.2 Row Level Security 策略
 
-```javascript
-// 云函数：检测异常请求
-AV.Cloud.define('deductCredits', async (request) => {
-  const userId = request.params.userId;
+```sql
+-- 用户只能查看/更新自己的资料
+CREATE POLICY "Users can view own profile" ON public.profiles
+  FOR SELECT USING (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE USING (auth.uid() = id);
+
+-- 用户只能查看自己的交易记录
+CREATE POLICY "Users can view own transactions" ON public.transactions
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- 用户只能查看自己的订单
+CREATE POLICY "Users can view own orders" ON public.recharge_orders
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- 用户只能查看自己的生成日志
+CREATE POLICY "Users can view own logs" ON public.generation_logs
+  FOR SELECT USING (auth.uid() = user_id);
+```
+
+### 11.3 防刷策略
+
+```typescript
+// Edge Function：检测异常请求
+async function checkRateLimit(userId: string): Promise<boolean> {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
 
   // 检查最近1小时请求次数
   const oneHourAgo = new Date(Date.now() - 3600000);
-  const recentTransactions = await new AV.Query('Transaction')
-    .equalTo('user', AV.Object.createWithoutData('_User', userId))
-    .greaterThan('createdAt', oneHourAgo)
-    .count();
+  const { count } = await supabase
+    .from('transactions')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('created_at', oneHourAgo.toISOString());
 
-  if (recentTransactions > 50) {
+  if (count && count > 50) {
     throw new Error('请求过于频繁，请稍后再试');
   }
 
-  // 继续处理...
-});
+  return true;
+}
 ```
 
 ---
@@ -859,6 +1155,7 @@ AV.Cloud.define('deductCredits', async (request) => {
 - [ ] 充值订单创建成功
 - [ ] 支付回调正确处理
 - [ ] 交易记录正确记录
+- [ ] API Key 不暴露给前端
 
 ### 12.2 边界测试
 
@@ -866,6 +1163,7 @@ AV.Cloud.define('deductCredits', async (request) => {
 - [ ] 并发生发正确扣费
 - [ ] 网络错误时正确处理
 - [ ] 重复支付回调幂等性
+- [ ] RLS 策略生效
 
 ---
 
@@ -875,34 +1173,31 @@ AV.Cloud.define('deductCredits', async (request) => {
 
 | 项目 | 成本 |
 |-----|------|
-| LeanCloud 免费版 | ¥0/月 |
+| Supabase 免费版 | ¥0/月 |
 | 虎皮椒支付费率 | 2%（按交易额） |
 | APIMart API | 按成本（用户支付） |
 | 域名 | ¥50-100/年 |
+| Vercel 托管 | ¥0/月（免费版） |
 
 ### 13.2 收支分析
 
-由于采用成本定价，平台本身不盈利。
+**盈亏平衡点计算：**
 
-**示例计算：**
-- 用户充值 ¥100，获得 1389 积分
-- 支付通道费：¥100 × 2% = ¥2
-- 可用成本：¥98
+假设平均每用户每月生成 50 张 1K 图片：
+- 用户支付：50 × ¥0.40 = ¥20
+- APIMart 成本：50 × ¥0.36 = ¥18
+- **平台利润：¥2/用户/月**
 
-用户全部用于生成 2K 图片（5积分/张）：
-- 可生成：1389 ÷ 5 = 277 张
-- APIMart 成本：277 × $0.05 × 7.2 ≈ ¥99.72
+月活 100 人 → **¥200/月**
+月活 500 人 → **¥1,000/月**
+月活 1,000 人 → **¥2,000/月**
 
-**结论：** 略微亏损（支付通道费），需在定价时预留空间
+### 13.3 超出免费额度的成本
 
-### 13.3 优化定价（覆盖通道费）
-
-| 充值金额 | 原积分 | 调整后积分 | 说明 |
-|---------|-------|-----------|------|
-| ¥10 | 139 | 125 | 扣除通道费后可生成 125÷5=25张，成本$0.05×25×7.2=¥9，有盈余 |
-| ¥50 | 694 | 625 | 同理 |
-| ¥100 | 1389 | 1250 | 同理 |
-| ¥500 | 6944 | 6250 | 同理 |
+Supabase Pro 版本（$25/月）：
+- 8GB 数据库
+- 100GB 文件存储
+- 无限 API 调用
 
 ---
 
@@ -959,9 +1254,9 @@ function deductLocalCredits(cost) {
 
 ```
 立即开始：
-1. 注册 LeanCloud 账号
-2. 创建数据表
-3. 开发云函数（用户、积分、充值）
+1. 注册 Supabase 账号
+2. 创建数据表（SQL）
+3. 开发 Edge Functions（积分、充值、图片生成）
 4. 前端对接测试
 
 第二周：
@@ -970,7 +1265,7 @@ function deductLocalCredits(cost) {
 7. 测试支付流程
 
 第三周：
-8. 安全加固
+8. 安全加固（RLS 策略）
 9. 上线发布
 ```
 
@@ -979,11 +1274,23 @@ function deductLocalCredits(cost) {
 | 文件 | 说明 |
 |-----|------|
 | `nanobananapro生图平台.html` | 主应用文件（需修改） |
-| `leancloud/cloud_functions.js` | LeanCloud 云函数 |
-| `leancloud/payment_callback.js` | 支付回调处理 |
+| `supabase/functions/deduct-credits/index.ts` | 扣除积分 Edge Function |
+| `supabase/functions/refund-credits/index.ts` | 退还积分 Edge Function |
+| `supabase/functions/create-recharge/index.ts` | 创建充值订单 Edge Function |
+| `supabase/functions/payment-callback/index.ts` | 支付回调 Edge Function |
+| `supabase/functions/generate-image/index.ts` | 图片生成代理 Edge Function |
+
+### 关键优势
+
+1. **API Key 安全** - 存储在服务端环境变量，前端无法访问
+2. **完全控制定价** - 可以随时调整积分价格
+3. **用户行为追踪** - 完整的消费记录和生成日志
+4. **可扩展** - Supabase 支持平滑升级到付费版
+5. **开源友好** - 无厂商锁定
 
 ---
 
-**文档版本：** v2.0（成本定价版）
-**创建日期：** 2026-02-05
+**文档版本：** v3.0（Supabase + 带利润定价版）
+**创建日期：** 2026-02-06
+**更新日期：** 2026-02-06
 **作者：** Claude Code
