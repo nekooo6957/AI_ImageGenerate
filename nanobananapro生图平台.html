@@ -1241,14 +1241,15 @@
                     creditsState.balance = 0;
                 }
 
+                // 先设置 isLoading = false，再更新显示
+                creditsState.isLoading = false;
                 updateCreditsDisplay();
                 console.log('✅ 用户积分已加载:', creditsState.balance);
             } catch (error) {
                 console.error('获取用户积分失败:', error);
                 creditsState.balance = 0;
-                updateCreditsDisplay();
-            } finally {
                 creditsState.isLoading = false;
+                updateCreditsDisplay();
             }
         }
 

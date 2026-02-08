@@ -24,6 +24,18 @@ const COST_RULES: Record<string, number> = {
   '4K': 10,
 }
 
+/**
+ * Get environment variable with fallback support
+ * Tries multiple naming conventions for compatibility
+ */
+function getEnvVar(...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = Deno.env.get(name)
+    if (value) return value
+  }
+  return undefined
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -31,7 +43,7 @@ serve(async (req) => {
   }
 
   try {
-    // 1. Validate user authentication
+    // 1. Environment setup & Validate user authentication
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
       return new Response(
@@ -40,8 +52,24 @@ serve(async (req) => {
       )
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_PROJECT_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    // Try multiple environment variable naming conventions
+    const supabaseUrl = getEnvVar('SUPABASE_PROJECT_URL', 'PROJECT_URL')
+    const supabaseServiceKey = getEnvVar('SUPABASE_SERVICE_ROLE_KEY', 'SERVICE_ROLE_KEY')
+
+    if (!supabaseUrl) {
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error: Missing PROJECT_URL environment variable' }),
+        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!supabaseServiceKey) {
+      return new Response(
+        JSON.stringify({ error: 'Server configuration error: Missing SERVICE_ROLE_KEY environment variable' }),
+        { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
+      )
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // Extract token from Authorization header (format: "Bearer <token>")
@@ -115,12 +143,12 @@ serve(async (req) => {
     const newBalance = creditData[0].new_balance
 
     // 5. Call APIMart API
-    const apimartKey = Deno.env.get('SUPABASE_APIMART_KEY')
+    const apimartKey = getEnvVar('SUPABASE_APIMART_KEY', 'APIMART_KEY')
     if (!apimartKey) {
       // Refund credits if API key is not configured
       await supabase.rpc('refund_credits', { p_transaction_id: transactionId })
       return new Response(
-        JSON.stringify({ error: 'Server configuration error', credits_refunded: cost }),
+        JSON.stringify({ error: 'Server configuration error: Missing APIMART_KEY environment variable', credits_refunded: cost }),
         { status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } }
       )
     }

@@ -142,6 +142,18 @@ async function refundCredits(
 // Main Handler
 // ============================================
 
+/**
+ * Get environment variable with fallback support
+ * Tries multiple naming conventions for compatibility
+ */
+function getEnvVar(...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = Deno.env.get(name)
+    if (value) return value
+  }
+  return undefined
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -157,16 +169,21 @@ serve(async (req) => {
       return errorResponse('Missing authorization header', 401)
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_PROJECT_URL')
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-    const apimartKey = Deno.env.get('SUPABASE_APIMART_KEY')
+    // Try multiple environment variable naming conventions
+    const supabaseUrl = getEnvVar('SUPABASE_PROJECT_URL', 'PROJECT_URL')
+    const supabaseServiceKey = getEnvVar('SUPABASE_SERVICE_ROLE_KEY', 'SERVICE_ROLE_KEY')
+    const apimartKey = getEnvVar('SUPABASE_APIMART_KEY', 'APIMART_KEY')
 
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return errorResponse('Server configuration error: Missing database credentials', 500)
+    if (!supabaseUrl) {
+      return errorResponse('Server configuration error: Missing PROJECT_URL environment variable', 500)
+    }
+
+    if (!supabaseServiceKey) {
+      return errorResponse('Server configuration error: Missing SERVICE_ROLE_KEY environment variable', 500)
     }
 
     if (!apimartKey) {
-      return errorResponse('Server configuration error: Missing APIMart API key', 500)
+      return errorResponse('Server configuration error: Missing APIMART_KEY environment variable', 500)
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
