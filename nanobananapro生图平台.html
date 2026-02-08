@@ -14,6 +14,8 @@
     <script src="https://unpkg.com/fabric@5.3.0/dist/fabric.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
+    <!-- Supabase SDK for User Authentication and Database -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
     <style>
         :root {
             --bg: #fafafa;
@@ -514,13 +516,40 @@
     <div id="authOverlay" class="fixed inset-0 z-[200] bg-white flex items-center justify-center">
         <div class="w-96 p-10 text-center">
             <div class="w-14 h-14 bg-black rounded-2xl flex items-center justify-center shadow-2xl mx-auto mb-8"><i class="fas fa-city text-white text-lg"></i></div>
-            <h2 class="font-display text-xl font-semibold mb-3">UAL AI-Powered Design Platform</h2>
-            <p class="text-xs text-gray-400 uppercase tracking-[0.3em] mb-10">Design Studio</p>
-            <div class="space-y-4 mb-8">
-                <input id="userAccount" type="text" placeholder="Design Account / 账号" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
-                <input id="userPwd" type="password" placeholder="Password / 密码" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+            <h2 class="font-display text-xl font-semibold mb-3">Nano Banana Pro</h2>
+            <p class="text-xs text-gray-400 uppercase tracking-[0.3em] mb-8">AI Design Platform</p>
+
+            <!-- 登录/注册切换按钮 -->
+            <div class="flex bg-gray-100 rounded-xl p-1 mb-6">
+                <button id="loginTabBtn" onclick="switchAuthTab('login')" class="flex-1 py-2 text-[10px] font-bold rounded-lg bg-white shadow-sm transition-all">登录</button>
+                <button id="signupTabBtn" onclick="switchAuthTab('signup')" class="flex-1 py-2 text-[10px] font-bold rounded-lg text-gray-400 transition-all">注册</button>
             </div>
-            <button onclick="handleLogin()" class="w-full spotlight-btn btn-black py-4 rounded-2xl text-[11px] font-bold shadow-xl transition-all hover:shadow-2xl uppercase tracking-widest">进入档案库</button>
+
+            <!-- 登录表单 -->
+            <div id="loginForm" class="space-y-4 mb-6">
+                <input id="loginEmail" type="email" placeholder="邮箱 / Email" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+                <input id="loginPassword" type="password" placeholder="密码 / Password" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+            </div>
+
+            <!-- 注册表单 (默认隐藏) -->
+            <div id="signupForm" class="space-y-4 mb-6 hidden">
+                <input id="signupEmail" type="email" placeholder="邮箱 / Email" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+                <input id="signupPassword" type="password" placeholder="密码 (至少6位) / Password" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+                <input id="signupConfirmPassword" type="password" placeholder="确认密码 / Confirm Password" class="w-full px-5 py-4 bg-gray-50 rounded-2xl text-[12px] focus:ring-2 focus:ring-black outline-none border-none transition-all">
+            </div>
+
+            <!-- 错误提示 -->
+            <div id="authError" class="text-[10px] text-red-500 mb-4 hidden"></div>
+
+            <!-- 操作按钮 -->
+            <button id="loginBtn" onclick="handleLogin()" class="w-full spotlight-btn btn-black py-4 rounded-2xl text-[11px] font-bold shadow-xl transition-all hover:shadow-2xl uppercase tracking-widest">登录</button>
+            <button id="signupBtn" onclick="handleSignup()" class="w-full spotlight-btn btn-black py-4 rounded-2xl text-[11px] font-bold shadow-xl transition-all hover:shadow-2xl uppercase tracking-widest hidden">注册</button>
+
+            <!-- 配置提示 -->
+            <div id="configWarning" class="mt-6 p-3 bg-yellow-50 rounded-xl border border-yellow-200 hidden">
+                <p class="text-[9px] text-yellow-700">⚠️ 请先配置 Supabase 凭据</p>
+                <p class="text-[8px] text-yellow-600 mt-1">在代码中设置 SUPABASE_URL 和 SUPABASE_ANON_KEY</p>
+            </div>
         </div>
     </div>
 
@@ -652,6 +681,88 @@
         </div>
     </div>
 
+    <!-- 充值 Modal -->
+    <div id="rechargeModal" class="fixed inset-0 z-[160]" style="display: none;">
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeRechargeModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-3xl shadow-2xl flex flex-col max-w-2xl w-full max-h-[85vh] overflow-hidden">
+                <!-- 头部 -->
+                <div class="flex justify-between items-center px-6 py-4 border-b border-gray-100">
+                    <h2 class="text-lg font-bold text-gray-800">积分充值</h2>
+                    <button onclick="closeRechargeModal()" class="text-gray-400 hover:text-black transition">
+                        <i class="fas fa-times text-lg"></i>
+                    </button>
+                </div>
+
+                <!-- 内容区域 -->
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <div class="mb-6">
+                        <h3 class="text-sm font-bold text-gray-700 mb-2">当前余额</h3>
+                        <div class="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl">
+                            <i class="fas fa-coins text-yellow-500 text-xl"></i>
+                            <span id="rechargeCurrentBalance" class="text-2xl font-bold text-gray-800">--</span>
+                            <span class="text-sm text-gray-500">积分</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-6">
+                        <h3 class="text-sm font-bold text-gray-700 mb-3">选择充值套餐</h3>
+                        <div class="grid grid-cols-2 gap-4">
+                            <button onclick="selectRechargePackage(10, 139, '体验包')" class="recharge-package relative p-4 border-2 border-gray-200 rounded-xl hover:border-black transition-all text-left">
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="text-xs text-gray-500">体验包</span>
+                                    <span class="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">推荐新手</span>
+                                </div>
+                                <p class="text-2xl font-bold text-gray-800">¥10</p>
+                                <p class="text-sm text-blue-600 font-medium">139 积分</p>
+                                <p class="text-xs text-gray-400 mt-1">约 27 张 2K 图片</p>
+                            </button>
+
+                            <button onclick="selectRechargePackage(50, 694, '常用包')" class="recharge-package relative p-4 border-2 border-gray-200 rounded-xl hover:border-black transition-all text-left">
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="text-xs text-gray-500">常用包</span>
+                                </div>
+                                <p class="text-2xl font-bold text-gray-800">¥50</p>
+                                <p class="text-sm text-blue-600 font-medium">694 积分</p>
+                                <p class="text-xs text-gray-400 mt-1">约 138 张 2K 图片</p>
+                            </button>
+
+                            <button onclick="selectRechargePackage(100, 1389, '充值包')" class="recharge-package relative p-4 border-2 border-orange-200 bg-orange-50 rounded-xl hover:border-orange-400 transition-all text-left">
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="text-xs text-gray-500">充值包</span>
+                                    <span class="text-xs bg-orange-500 text-white px-2 py-0.5 rounded-full">热门</span>
+                                </div>
+                                <p class="text-2xl font-bold text-gray-800">¥100</p>
+                                <p class="text-sm text-blue-600 font-medium">1389 积分</p>
+                                <p class="text-xs text-gray-400 mt-1">约 277 张 2K 图片</p>
+                            </button>
+
+                            <button onclick="selectRechargePackage(500, 6944, '大容量包')" class="recharge-package relative p-4 border-2 border-gray-200 rounded-xl hover:border-black transition-all text-left">
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="text-xs text-gray-500">大容量包</span>
+                                    <span class="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full">推荐</span>
+                                </div>
+                                <p class="text-2xl font-bold text-gray-800">¥500</p>
+                                <p class="text-sm text-blue-600 font-medium">6944 积分</p>
+                                <p class="text-xs text-gray-400 mt-1">约 1388 张 2K 图片</p>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="p-4 bg-blue-50 rounded-xl text-xs text-blue-700">
+                        <p class="font-medium mb-1"><i class="fas fa-info-circle mr-1"></i>充值说明</p>
+                        <ul class="space-y-1 text-blue-600">
+                            <li>• 1 积分 = ¥0.072（成本定价）</li>
+                            <li>• 1K/2K 图片消耗 5 积分，4K 图片消耗 10 积分</li>
+                            <li>• 充值后积分立即到账</li>
+                            <li>• 积分永久有效，无使用期限</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 提示词模板三级内容面板（默认隐藏，居中弹窗） -->
     <div id="templateTertiaryPanel" class="hidden fixed inset-0 z-[90]">
         <!-- 背景遮罩 -->
@@ -756,6 +867,16 @@
                 <span class="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">Auth Key (APIMart)</span>
                 <input id="apiMartKey" type="password" placeholder="输入密钥..." class="text-[10px] border-b border-gray-100 focus:border-black outline-none px-2 py-1 transition-all w-56 bg-transparent text-right">
             </div>
+
+            <!-- 积分显示组件 -->
+            <div id="creditsDisplay" class="flex items-center gap-3 px-4 py-2 bg-gray-50 rounded-xl border border-gray-100">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-coins text-yellow-500 text-xs"></i>
+                    <span class="text-[8px] text-gray-600 uppercase tracking-tighter">积分余额</span>
+                </div>
+                <span id="creditsBalance" class="font-bold text-sm">--</span>
+            </div>
+
             <div class="flex items-center gap-4 border-l border-gray-100 pl-6">
                 <div class="text-right">
                     <p id="currentUserName" class="text-[10px] font-bold text-gray-800">Designer</p>
@@ -866,6 +987,12 @@
                             <span>开始生图</span><i class="fas fa-chevron-right text-[8px]"></i>
                         </button>
                     </div>
+
+                    <!-- 积分消耗预览 -->
+                    <div id="costPreview" class="flex items-center justify-between px-4 py-2 bg-blue-50 rounded-lg text-[10px] text-blue-700 mt-3">
+                        <span>生成配置：2K × 1张</span>
+                        <span>预计消耗：<strong class="text-blue-600">5 积分</strong> (约 ¥0.36)</span>
+                    </div>
                 </div>
             </div>
         </section>
@@ -873,6 +1000,54 @@
 
     <script>
         const INTERNAL_SF_KEY = 'sk-rudcrnbhwykshkezbwaojyucwlqrfmcoebnmcootdgdehcqc';
+
+        // ========== Supabase 配置 ==========
+        // ⚠️ 请替换为你的 Supabase 项目凭据
+        // 获取方式：Supabase Dashboard → Settings → API
+        const SUPABASE_URL = 'https://aiodfulclonruzsofwzb.supabase.co';  // 格式：https://xxxxx.supabase.co
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb2RmdWxjbG9ucnV6c29md3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MjYyNjgsImV4cCI6MjA4NjEwMjI2OH0.69B3T-U0F9uO5W7mX6aW6JLNQ3GiPPe2axiL-ljYgGg';  // 格式：eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        let supabase = null;
+        let isSupabaseConfigured = false;
+
+        // 尝试初始化 Supabase（如果配置了凭据）
+        try {
+            if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY' && SUPABASE_URL.startsWith('https://')) {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                isSupabaseConfigured = true;
+                console.log('✅ Supabase 已初始化');
+            } else {
+                console.warn('⚠️ Supabase 未配置，请设置正确的凭据');
+                // 显示配置警告
+                setTimeout(() => {
+                    const warning = document.getElementById('configWarning');
+                    if (warning) warning.classList.remove('hidden');
+                }, 500);
+            }
+        } catch (e) {
+            console.warn('Supabase 初始化失败:', e.message);
+        }
+
+        // ========== 积分系统配置 ==========
+        const CREDIT_COST_RULES = {
+            '1K': 5,
+            '2K': 5,
+            '4K': 10
+        };
+
+        // 积分状态管理
+        let creditsState = {
+            balance: 0,
+            totalRecharged: 0,
+            totalConsumed: 0,
+            transactions: [],
+            isLoading: false
+        };
+
+        // 当前用户信息（Supabase）
+        let currentUser = null;
+        let currentUserId = null;
+        let accessToken = null;
+
         let platformState = {
             ratio: '1:1',
             res: '1K',
@@ -1013,6 +1188,239 @@
             return CryptoJS.SHA256(password).toString();
         }
 
+        // ========== 积分系统函数 ==========
+
+        // 计算生图消耗的积分
+        function calculateCost(resolution, count) {
+            const baseCost = CREDIT_COST_RULES[resolution] || 5;
+            return baseCost * count;
+        }
+
+        // 获取用户积分信息
+        async function loadUserCredits() {
+            if (!supabase || !currentUser) {
+                console.log('Supabase 未初始化或用户未登录，跳过积分加载');
+                creditsState.isLoading = false;
+                updateCreditsDisplay();
+                return;
+            }
+
+            try {
+                creditsState.isLoading = true;
+                updateCreditsDisplay();
+
+                console.log('正在调用 get-user-credits Edge Function...');
+                const { data, error } = await supabase.functions.invoke('get-user-credits');
+
+                // 详细错误日志
+                if (error) {
+                    console.error('Edge Function 调用失败:', error);
+                    console.error('错误详情:', JSON.stringify(error, null, 2));
+
+                    // 检查是否是 Edge Function 未部署的错误
+                    if (error.message?.includes('Function not found') ||
+                        error.message?.includes('404') ||
+                        error.context?.status === 404) {
+                        console.error('⚠️ Edge Function "get-user-credits" 未部署！');
+                        console.error('请参考部署指南部署 Edge Functions');
+                        alert('请先部署 Supabase Edge Functions，详见部署指南');
+                        creditsState.balance = 0;
+                    }
+                    throw error;
+                }
+
+                console.log('Edge Function 返回数据:', data);
+
+                if (data && data.credits) {
+                    creditsState.balance = data.credits.balance || 0;
+                    creditsState.totalRecharged = data.credits.total_recharged || 0;
+                    creditsState.totalConsumed = data.credits.total_consumed || 0;
+                    creditsState.transactions = data.transactions || [];
+                } else {
+                    console.warn('Edge Function 返回的数据格式不正确:', data);
+                    creditsState.balance = 0;
+                }
+
+                updateCreditsDisplay();
+                console.log('✅ 用户积分已加载:', creditsState.balance);
+            } catch (error) {
+                console.error('获取用户积分失败:', error);
+                creditsState.balance = 0;
+                updateCreditsDisplay();
+            } finally {
+                creditsState.isLoading = false;
+            }
+        }
+
+        // 更新积分显示
+        function updateCreditsDisplay() {
+            const balanceEl = document.getElementById('creditsBalance');
+            if (balanceEl) {
+                if (creditsState.isLoading) {
+                    balanceEl.textContent = '加载中...';
+                } else {
+                    balanceEl.textContent = creditsState.balance;
+                }
+            }
+            updateCostPreview();
+        }
+
+        // 更新消耗预览
+        function updateCostPreview() {
+            const costPreviewEl = document.getElementById('costPreview');
+            if (costPreviewEl) {
+                const cost = calculateCost(platformState.res, platformState.n);
+                const yuanCost = (cost * 0.072).toFixed(2);
+                costPreviewEl.innerHTML =
+                    `生成配置：${platformState.res} × ${platformState.n}张 | 预计消耗：<strong class="text-blue-600">${cost} 积分</strong> (约 ¥${yuanCost})`;
+            }
+        }
+
+        // 检查余额是否足够
+        function checkBalance() {
+            const cost = calculateCost(platformState.res, platformState.n);
+            if (creditsState.balance < cost) {
+                const confirmRecharge = confirm(
+                    `积分不足！需要 ${cost} 积分，当前余额 ${creditsState.balance} 积分。\n\n是否前往充值？`
+                );
+                if (confirmRecharge) {
+                    openRechargeModal();
+                }
+                return false;
+            }
+            return true;
+        }
+
+        // 扣除积分
+        async function deductCredits(cost, description, metadata) {
+            if (!supabase || !currentUser) {
+                console.warn('Supabase 未初始化，跳过积分扣除');
+                return { success: true, balance: 999999 }; // 本地模式，跳过积分验证
+            }
+
+            try {
+                const { data, error } = await supabase.functions.invoke('generate-image', {
+                    body: {
+                        prompt: description,
+                        size: platformState.ratio,
+                        resolution: platformState.res,
+                        n: platformState.n,
+                        project_id: platformState.currentProject
+                    }
+                });
+
+                if (error) {
+                    if (error.message.includes('Insufficient credits')) {
+                        alert(`积分不足！需要 ${cost} 积分`);
+                        openRechargeModal();
+                    }
+                    throw error;
+                }
+
+                if (data && data.success) {
+                    creditsState.balance = data.new_balance;
+                    updateCreditsDisplay();
+                    return {
+                        success: true,
+                        balance: data.new_balance,
+                        transaction_id: data.transaction_id,
+                        task_id: data.task_id,
+                        generation_id: data.generation_id
+                    };
+                }
+
+                throw new Error('扣除积分失败');
+            } catch (error) {
+                console.error('扣除积分失败:', error);
+                alert('扣除积分失败: ' + error.message);
+                return null;
+            }
+        }
+
+        // 轮询任务状态
+        async function pollTaskStatus(taskId, generationId, transactionId) {
+            const timer = setInterval(async () => {
+                try {
+                    const { data, error } = await supabase.functions.invoke('check-task', {
+                        body: { task_id: taskId, generation_id: generationId, transaction_id: transactionId }
+                    });
+
+                    if (error) throw error;
+
+                    if (data.status === 'succeeded') {
+                        clearInterval(timer);
+                        displayResults(data.urls);
+                        await loadUserCredits(); // 刷新积分
+                    } else if (data.status === 'failed') {
+                        clearInterval(timer);
+                        alert('生成失败，积分已退还');
+                        await loadUserCredits(); // 刷新积分
+                    }
+                } catch (error) {
+                    console.error('查询任务状态失败:', error);
+                }
+            }, 3000);
+        }
+
+        // 显示生成结果
+        function displayResults(urls) {
+            // TODO: 实现结果显示逻辑
+            console.log('生成成功:', urls);
+            alert('生成成功！');
+        }
+
+        // 充值相关函数（临时：管理员手动充值）
+        async function requestRecharge(amount) {
+            if (!supabase || !currentUser) {
+                alert('请先登录');
+                return;
+            }
+
+            const notes = prompt(`请输入充值备注（转账凭证号等）：\n充值金额：¥${amount}`);
+            if (!notes) return;
+
+            // 这里应该发送充值请求到管理员
+            alert(`充值申请已提交！\n金额：¥${amount}\n备注：${notes}\n\n请等待管理员审核。`);
+        }
+
+        // 打开充值 Modal
+        function openRechargeModal() {
+            const modal = document.getElementById('rechargeModal');
+            if (modal) {
+                modal.style.display = 'block';
+                // 更新当前余额显示
+                const balanceEl = document.getElementById('rechargeCurrentBalance');
+                if (balanceEl) {
+                    balanceEl.textContent = creditsState.balance;
+                }
+            }
+        }
+
+        // 关闭充值 Modal
+        function closeRechargeModal() {
+            const modal = document.getElementById('rechargeModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        // 选择充值套餐
+        function selectRechargePackage(amount, credits, packageName) {
+            if (!supabase || !currentUser) {
+                alert('请先登录 Supabase 账号');
+                return;
+            }
+
+            const confirmed = confirm(`确认充值 ¥${amount} 获得 ${credits} 积分？\n\n套餐：${packageName}`);
+            if (!confirmed) return;
+
+            // 这里应该调用支付接口
+            // 目前使用临时方案：管理员手动充值
+            requestRecharge(amount);
+
+            closeRechargeModal();
+        }
+
         // API密钥加密
         function encryptApiKey(apiKey) {
             return CryptoJS.AES.encrypt(apiKey, 'nano-banana-secret').toString();
@@ -1024,60 +1432,238 @@
         }
 
         // --- 核心：用户系统与项目增强 (新增删除、重命名) ---
-        async function handleLogin() {
-            try {
-                console.log('开始登录...');
 
-                // 检查依赖库是否加载
-                if (typeof CryptoJS === 'undefined') {
-                    alert('CryptoJS 库未加载，请刷新页面重试');
-                    console.error('CryptoJS 未加载');
-                    return;
-                }
-                if (typeof Dexie === 'undefined') {
-                    alert('Dexie.js 库未加载，请刷新页面重试');
-                    console.error('Dexie 未加载');
-                    return;
-                }
+        // ========== 认证界面切换 ==========
+        let currentAuthTab = 'login'; // 'login' 或 'signup'
 
-                const user = document.getElementById('userAccount').value;
-                const pwd = document.getElementById('userPwd').value;
-                if(!user || !pwd) return alert("请输入完整账号和密码");
+        function switchAuthTab(tab) {
+            currentAuthTab = tab;
+            const loginTabBtn = document.getElementById('loginTabBtn');
+            const signupTabBtn = document.getElementById('signupTabBtn');
+            const loginForm = document.getElementById('loginForm');
+            const signupForm = document.getElementById('signupForm');
+            const loginBtn = document.getElementById('loginBtn');
+            const signupBtn = document.getElementById('signupBtn');
+            const authError = document.getElementById('authError');
 
-                console.log('用户输入:', user);
+            // 隐藏错误提示
+            if (authError) authError.classList.add('hidden');
 
-                // 保存用户到数据库
-                await saveUserToDB(user);
-                console.log('用户已保存到数据库');
-
-                // 创建会话令牌并保存到 localStorage
-                const sessionToken = CryptoJS.lib.WordArray.random(32).toString();
-                const sessionData = {
-                    userId: user,
-                    token: sessionToken,
-                    expiresAt: Date.now() + SESSION_DURATION
-                };
-                localStorage.setItem('nano_session', JSON.stringify(sessionData));
-                console.log('会话已创建');
-
-                // 保存加密的 API 密钥（如果有）
-                const apiKey = document.getElementById('apiMartKey').value;
-                if(apiKey) {
-                    localStorage.setItem('nano_api_key', encryptApiKey(apiKey));
-                }
-
-                document.getElementById('currentUserName').innerText = user;
-                document.getElementById('authOverlay').style.display = 'none';
-                console.log('登录遮罩已隐藏');
-
-                await initData(user);
-                console.log('用户数据已初始化');
-                alert('登录成功！');
-            } catch (error) {
-                console.error('登录失败:', error);
-                alert('登录失败: ' + error.message);
+            if (tab === 'login') {
+                loginTabBtn.classList.add('bg-white', 'shadow-sm');
+                loginTabBtn.classList.remove('text-gray-400');
+                signupTabBtn.classList.remove('bg-white', 'shadow-sm');
+                signupTabBtn.classList.add('text-gray-400');
+                loginForm.classList.remove('hidden');
+                signupForm.classList.add('hidden');
+                loginBtn.classList.remove('hidden');
+                signupBtn.classList.add('hidden');
+            } else {
+                signupTabBtn.classList.add('bg-white', 'shadow-sm');
+                signupTabBtn.classList.remove('text-gray-400');
+                loginTabBtn.classList.remove('bg-white', 'shadow-sm');
+                loginTabBtn.classList.add('text-gray-400');
+                signupForm.classList.remove('hidden');
+                loginForm.classList.add('hidden');
+                signupBtn.classList.remove('hidden');
+                loginBtn.classList.add('hidden');
             }
         }
+
+        // 显示认证错误
+        function showAuthError(message) {
+            const authError = document.getElementById('authError');
+            if (authError) {
+                authError.textContent = message;
+                authError.classList.remove('hidden');
+            }
+        }
+
+        // ========== Supabase 认证 ==========
+
+        // 登录处理
+        async function handleLogin() {
+            if (!isSupabaseConfigured || !supabase) {
+                showAuthError('请先配置 Supabase 凭据');
+                return;
+            }
+
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+
+            if (!email || !password) {
+                showAuthError('请输入邮箱和密码');
+                return;
+            }
+
+            if (!email.includes('@')) {
+                showAuthError('请输入有效的邮箱地址');
+                return;
+            }
+
+            try {
+                console.log('尝试登录...');
+
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+
+                if (error) {
+                    showAuthError(error.message || '登录失败，请检查邮箱和密码');
+                    return;
+                }
+
+                currentUser = data.user;
+                currentUserId = data.user.id;
+                accessToken = data.session.access_token;
+
+                console.log('✅ 登录成功:', currentUser.email);
+
+                // 初始化用户积分（不含奖励）
+                await initializeUserCredits();
+
+                // 加载用户积分
+                await loadUserCredits();
+
+                document.getElementById('currentUserName').innerText = currentUser.email;
+                document.getElementById('authOverlay').style.display = 'none';
+
+                // 加载用户数据
+                await initData(currentUser.email);
+
+            } catch (error) {
+                console.error('登录失败:', error);
+                showAuthError('登录失败: ' + error.message);
+            }
+        }
+
+        // 注册处理
+        async function handleSignup() {
+            if (!isSupabaseConfigured || !supabase) {
+                showAuthError('请先配置 Supabase 凭据');
+                return;
+            }
+
+            const email = document.getElementById('signupEmail').value.trim();
+            const password = document.getElementById('signupPassword').value;
+            const confirmPassword = document.getElementById('signupConfirmPassword').value;
+
+            if (!email || !password || !confirmPassword) {
+                showAuthError('请填写所有字段');
+                return;
+            }
+
+            if (!email.includes('@')) {
+                showAuthError('请输入有效的邮箱地址');
+                return;
+            }
+
+            if (password.length < 6) {
+                showAuthError('密码长度至少为 6 位');
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                showAuthError('两次输入的密码不一致');
+                return;
+            }
+
+            try {
+                console.log('尝试注册...');
+
+                const { data, error } = await supabase.auth.signUp({
+                    email: email,
+                    password: password,
+                    options: {
+                        emailRedirectTo: window.location.origin
+                    }
+                });
+
+                if (error) {
+                    showAuthError(error.message || '注册失败');
+                    return;
+                }
+
+                // 检查是否需要邮箱验证
+                if (data.user && !data.session) {
+                    showAuthError('注册成功！请查收邮箱验证链接');
+                    return;
+                }
+
+                if (data.user && data.session) {
+                    currentUser = data.user;
+                    currentUserId = data.user.id;
+                    accessToken = data.session.access_token;
+
+                    console.log('✅ 注册成功:', currentUser.email);
+
+                    // 初始化用户积分（不含奖励）
+                    await initializeUserCredits();
+
+                    document.getElementById('currentUserName').innerText = currentUser.email;
+                    document.getElementById('authOverlay').style.display = 'none';
+
+                    // 加载用户数据
+                    await initData(currentUser.email);
+                }
+
+            } catch (error) {
+                console.error('注册失败:', error);
+                showAuthError('注册失败: ' + error.message);
+            }
+        }
+
+        // 初始化用户积分（不含注册奖励）
+        async function initializeUserCredits() {
+            if (!supabase || !currentUser) return;
+
+            try {
+                const { data, error } = await supabase.functions.invoke('initialize-user-credits');
+                if (error) {
+                    console.warn('初始化用户积分失败:', error);
+                    return;
+                }
+
+                if (data && !data.already_initialized) {
+                    console.log('✅ 用户积分账户已创建');
+                }
+            } catch (error) {
+                console.error('初始化用户积分时出错:', error);
+            }
+        }
+
+        // 登出处理
+        async function handleLogout() {
+            try {
+                // 如果使用 Supabase，先登出
+                if (supabase && isSupabaseConfigured) {
+                    await supabase.auth.signOut();
+                    console.log('✅ 已登出 Supabase');
+                }
+
+                // 清理本地数据
+                currentUser = null;
+                currentUserId = null;
+                accessToken = null;
+                creditsState = {
+                    balance: 0,
+                    totalRecharged: 0,
+                    totalConsumed: 0,
+                    transactions: [],
+                    isLoading: false
+                };
+
+                // 重新加载页面以显示登录界面
+                location.reload();
+            } catch (error) {
+                console.error('登出失败:', error);
+                // 即使出错也重新加载
+                location.reload();
+            }
+        }
+
+        // ========== 项目管理 ==========
 
         async function initData(user) {
             // 尝试从 IndexedDB 加载数据
@@ -1108,35 +1694,45 @@
                     console.log('API 密钥解密失败');
                 }
             }
+
+            // 加载用户积分
+            if (supabase && currentUser) {
+                await loadUserCredits();
+            } else {
+                // 未登录状态，积分为 0
+                creditsState.balance = 0;
+                updateCreditsDisplay();
+            }
         }
 
         // 检查会话是否有效
         async function checkSession() {
-            try {
-                const sessionStr = localStorage.getItem('nano_session');
-                if(!sessionStr) {
-                    console.log('没有找到会话，显示登录界面');
-                    return false;
-                }
+            // 检查 Supabase 会话
+            if (isSupabaseConfigured && supabase) {
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session) {
+                        console.log('✅ 找到有效会话:', session.user.email);
+                        currentUser = session.user;
+                        currentUserId = session.user.id;
+                        accessToken = session.access_token;
 
-                const session = JSON.parse(sessionStr);
-                if(Date.now() > session.expiresAt) {
-                    localStorage.removeItem('nano_session');
-                    console.log('会话已过期，显示登录界面');
-                    return false;
-                }
+                        document.getElementById('currentUserName').innerText = session.user.email;
+                        document.getElementById('authOverlay').style.display = 'none';
 
-                // 从数据库恢复用户信息
-                const user = session.userId;
-                console.log('找到有效会话:', user);
-                document.getElementById('currentUserName').innerText = user;
-                document.getElementById('authOverlay').style.display = 'none';
-                await initData(user);
-                return true;
-            } catch(e) {
-                console.error('检查会话时出错:', e);
-                return false;
+                        await initData(session.user.email);
+                        await loadUserCredits();
+
+                        return true;
+                    }
+                } catch (error) {
+                    console.error('检查会话时出错:', error);
+                }
             }
+
+            // 没有找到有效会话，显示登录界面
+            console.log('⚠️ 没有找到有效会话，显示登录界面');
+            return false;
         }
 
         // 页面加载时检查会话
@@ -1145,6 +1741,7 @@
             console.log('CryptoJS:', typeof CryptoJS);
             console.log('Dexie:', typeof Dexie);
             console.log('fabric:', typeof fabric);
+            console.log('Supabase:', isSupabaseConfigured ? '✅ 已配置' : '⚠️ 未配置');
 
             await checkSession();
             console.log('页面初始化完成');
@@ -1632,8 +2229,87 @@
         });
 
         async function executeSynthesis() {
-            const key = document.getElementById('apiMartKey').value; if(!key) return alert("请输入生图引擎密钥");
             const prompt = document.getElementById('promptInput').value;
+            if(!prompt) return alert("请输入提示词");
+
+            // 如果使用 Supabase，通过 Edge Function 进行积分验证和 API 调用
+            if (supabase && currentUser) {
+                return await executeSynthesisWithSupabase(prompt);
+            }
+
+            // 否则使用原有的直接 API 调用逻辑
+            return await executeSynthesisDirect(prompt);
+        }
+
+        // 使用 Supabase Edge Function 进行生图（带积分验证）
+        async function executeSynthesisWithSupabase(prompt) {
+            // 检查积分余额
+            const cost = calculateCost(platformState.res, platformState.n);
+            if (creditsState.balance < cost) {
+                const confirmRecharge = confirm(
+                    `积分不足！需要 ${cost} 积分，当前余额 ${creditsState.balance} 积分。\n\n是否前往充值？`
+                );
+                if (confirmRecharge) {
+                    openRechargeModal();
+                }
+                return;
+            }
+
+            // 准备参考图
+            const refImgs = platformState.currentRefImgs.map(img => img.b64);
+            const styleImgs = platformState.styleReferenceImages.map(img => img.b64);
+            const annotatedImg = platformState.currentAnnotatedImage;
+            const allImgs = [...refImgs, ...styleImgs];
+            if(annotatedImg) allImgs.push(annotatedImg);
+
+            // 创建历史记录快照
+            const snapshot = {
+                id: Date.now() + Math.random(),
+                project: platformState.currentProject,
+                dt: new Date().toLocaleString('zh-CN', { hour12: false }),
+                p: prompt,
+                cfg: `${platformState.ratio} | ${platformState.res}`,
+                tags: {...platformState.selectedTags},
+                imgs: allImgs,
+                resultUrl: null
+            };
+            platformState.history.push(snapshot);
+            saveAllData();
+            switchProject(platformState.currentProject);
+
+            try {
+                // 调用 Edge Function，会自动验证和扣除积分
+                const { data, error } = await supabase.functions.invoke('generate-image', {
+                    body: {
+                        prompt: prompt,
+                        size: platformState.ratio,
+                        resolution: platformState.res,
+                        n: platformState.n,
+                        project_id: platformState.currentProject
+                    }
+                });
+
+                if (error) {
+                    throw error;
+                }
+
+                if (data && data.success) {
+                    console.log('生图任务已创建:', data.task_id);
+                    // 开始轮询任务状态
+                    pollTaskStatus(data.task_id, data.generation_id, data.transaction_id, snapshot);
+                }
+
+            } catch (error) {
+                console.error('生图失败:', error);
+                alert('生图失败: ' + error.message);
+            }
+        }
+
+        // 原有的直接 API 调用逻辑（本地模式）
+        async function executeSynthesisDirect(prompt) {
+            const key = document.getElementById('apiMartKey').value;
+            if(!key) return alert("请输入生图引擎密钥");
+
             const refImgs = platformState.currentRefImgs.map(img => img.b64);
             const styleImgs = platformState.styleReferenceImages.map(img => img.b64);
             const annotatedImg = platformState.currentAnnotatedImage;
@@ -3524,7 +4200,7 @@
             }
         });
 
-        function handleLogout() { location.reload(); }
+        // handleLogout 函数已在上面定义
         document.addEventListener('mousemove', e => { document.querySelectorAll('.spotlight-btn').forEach(btn => { const rect = btn.getBoundingClientRect(); btn.style.setProperty('--x', `${e.clientX - rect.left}px`); btn.style.setProperty('--y', `${e.clientY - rect.top}px`); }); });
         document.addEventListener('paste', e => { const items = (e.clipboardData || e.originalEvent.clipboardData).items; for (let item of items) { if (item.kind === 'file') captureAssets([item.getAsFile()]); } });
     </script>

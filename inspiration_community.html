@@ -9,6 +9,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Supabase SDK for User Authentication -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"></script>
     <style>
         :root {
             --black: #0a0a0a;
@@ -531,6 +533,25 @@
     </footer>
 
     <script>
+        // ========== Supabase 配置 ==========
+        // 注意：请在使用前替换为你的 Supabase 项目凭据
+        const SUPABASE_URL = 'https://aiodfulclonruzsofwzb.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb2RmdWxjbG9ucnV6c29md3piIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MjYyNjgsImV4cCI6MjA4NjEwMjI2OH0.69B3T-U0F9uO5W7mX6aW6JLNQ3GiPPe2axiL-ljYgGg';
+        let supabase = null;
+
+        // 当前用户信息
+        let currentUser = null;
+
+        // 尝试初始化 Supabase（如果配置了凭据）
+        try {
+            if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY') {
+                supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('Supabase 已初始化');
+            }
+        } catch (e) {
+            console.warn('Supabase 初始化失败:', e.message);
+        }
+
         // ========== 静态案例数据 ==========
         const STATIC_CASES = [
             {
@@ -635,8 +656,29 @@
         };
 
         // ========== 初始化 ==========
-        function init() {
-            loadCasesFromStorage();
+        async function init() {
+            // 检查 Supabase 会话
+            if (supabase) {
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session) {
+                        currentUser = session.user;
+                        console.log('用户已登录:', currentUser.email);
+                        // 从 Supabase 加载案例
+                        await loadCasesFromSupabase();
+                    } else {
+                        // 未登录，加载本地数据
+                        loadCasesFromStorage();
+                    }
+                } catch (error) {
+                    console.error('检查会话失败:', error);
+                    loadCasesFromStorage();
+                }
+            } else {
+                // 未配置 Supabase，加载本地数据
+                loadCasesFromStorage();
+            }
+
             createFloatingImages();
             renderPopularTags();
             filterAndRenderCases();
@@ -900,6 +942,14 @@
         }
 
         function handleCaseUpload() {
+            // 检查用户是否已登录
+            if (!supabase || !currentUser) {
+                alert('请先登录后再上传作品');
+                // 跳转到主平台登录
+                window.location.href = './nanobananapro生图平台.html';
+                return;
+            }
+
             const title = document.getElementById('uploadTitle').value.trim();
             const tagsStr = document.getElementById('uploadTags').value.trim();
             const prompt = document.getElementById('uploadPrompt').value.trim();
@@ -919,25 +969,119 @@
 
             const tags = tagsStr.split(/[,，]/).map(t => t.trim()).filter(t => t);
 
-            const newCase = {
-                id: Date.now(),
-                title,
-                image: state.uploadedImageData,
-                tags,
-                prompt: prompt || '暂无提示词',
-                author: '我',
-                createdAt: new Date().toISOString().split('T')[0],
-                likes: 0,
-                category: determineCategory(tags)
-            };
+            // 如果使用 Supabase，保存到数据库
+            if (supabase && currentUser) {
+                uploadToSupabase(title, tags, prompt);
+            } else {
+                // 否则保存到本地存储
+                const newCase = {
+                    id: Date.now(),
+                    title,
+                    image: state.uploadedImageData,
+                    tags,
+                    prompt: prompt || '暂无提示词',
+                    author: '我',
+                    createdAt: new Date().toISOString().split('T')[0],
+                    likes: 0,
+                    category: determineCategory(tags)
+                };
 
-            state.cases.unshift(newCase);
-            saveCasesToStorage();
-            closeUploadModal();
-            filterAndRenderCases();
+                state.cases.unshift(newCase);
+                saveCasesToStorage();
+                closeUploadModal();
+                filterAndRenderCases();
 
-            // Show success message
-            alert('作品发布成功！');
+                // Show success message
+                alert('作品发布成功！');
+            }
+        }
+
+        // 上传到 Supabase
+        async function uploadToSupabase(title, tags, prompt) {
+            try {
+                // 将 base64 图片转换为 Blob
+                const imageBlob = await fetch(state.uploadedImageData).then(r => r.blob());
+
+                // 上传图片到 Supabase Storage
+                const fileName = `${currentUser.id}/${Date.now()}.png`;
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('community-images')
+                    .upload(fileName, imageBlob, {
+                        contentType: 'image/png',
+                        upsert: false
+                    });
+
+                if (uploadError) {
+                    throw uploadError;
+                }
+
+                // 获取公共 URL
+                const { data: { publicUrl } } = supabase.storage
+                    .from('community-images')
+                    .getPublicUrl(fileName);
+
+                // 保存到数据库
+                const { error: dbError } = await supabase
+                    .from('community_posts')
+                    .insert({
+                        user_id: currentUser.id,
+                        title: title,
+                        description: '',
+                        prompt: prompt || '暂无提示词',
+                        image_url: publicUrl,
+                        tags: tags
+                    });
+
+                if (dbError) {
+                    throw dbError;
+                }
+
+                closeUploadModal();
+                alert('作品发布成功！');
+
+                // 重新加载案例列表
+                loadCasesFromSupabase();
+
+            } catch (error) {
+                console.error('上传失败:', error);
+                alert('上传失败: ' + error.message);
+            }
+        }
+
+        // 从 Supabase 加载案例
+        async function loadCasesFromSupabase() {
+            if (!supabase) return;
+
+            try {
+                const { data, error } = await supabase
+                    .from('community_posts')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(50);
+
+                if (error) throw error;
+
+                if (data) {
+                    // 将 Supabase 数据转换为案例格式
+                    const supabaseCases = data.map(post => ({
+                        id: post.id,
+                        title: post.title,
+                        image: post.image_url,
+                        tags: post.tags || [],
+                        prompt: post.prompt,
+                        author: currentUser?.id === post.user_id ? '我' : '社区用户',
+                        createdAt: new Date(post.created_at).toISOString().split('T')[0],
+                        likes: post.likes_count || 0,
+                        category: determineCategory(post.tags || [])
+                    }));
+
+                    // 合并静态案例和 Supabase 案例
+                    state.cases = [...STATIC_CASES, ...supabaseCases];
+                    filterAndRenderCases();
+                }
+            } catch (error) {
+                console.error('加载案例失败:', error);
+            }
         }
 
         function determineCategory(tags) {

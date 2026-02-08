@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Supabase
+.supabase/
+supabase/.temp/
+
+# Claude Code
+.claude/settings.local.json
+
+# Tools
+tools/
+*.exe
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build outputs
+dist/
+build/
+*.tgz
+
+# Temporary files
+*.tmp
+nul
